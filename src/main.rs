@@ -96,28 +96,67 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             _ => {}
                         },
+                        AppMode::Detail if app.chat_search_active => match key.code {
+                            KeyCode::Char(c) => {
+                                app.chat_search_query.push(c);
+                            }
+                            KeyCode::Backspace => {
+                                app.chat_search_query.pop();
+                            }
+                            KeyCode::Enter => {
+                                app.chat_search_active = false;
+                                // Focus first match (set by render)
+                                if !app.chat_search_matches.is_empty() {
+                                    app.chat_search_current = 0;
+                                    app.scroll_to_search_match();
+                                }
+                            }
+                            KeyCode::Esc => {
+                                app.chat_search_active = false;
+                                app.chat_search_query.clear();
+                                app.chat_search_matches.clear();
+                                app.chat_search_current = 0;
+                            }
+                            _ => {}
+                        },
                         AppMode::Detail => match key.code {
                             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Backspace => {
-                                if app.chat_fullscreen {
+                                if !app.chat_search_query.is_empty() {
+                                    // Clear search first
+                                    app.chat_search_query.clear();
+                                    app.chat_search_matches.clear();
+                                    app.chat_search_current = 0;
+                                } else if app.chat_fullscreen {
                                     app.chat_fullscreen = false;
                                 } else {
                                     app.mode = AppMode::List;
                                     app.detail_scroll = 0;
                                 }
                             }
+                            KeyCode::Char('/') => {
+                                app.chat_search_active = true;
+                                app.chat_search_query.clear();
+                                app.chat_search_matches.clear();
+                                app.chat_search_current = 0;
+                            }
+                            KeyCode::Char('n') => {
+                                if !app.chat_search_matches.is_empty() {
+                                    app.chat_search_current = (app.chat_search_current + 1) % app.chat_search_matches.len();
+                                    app.scroll_to_search_match();
+                                }
+                            }
+                            KeyCode::Char('N') => {
+                                if !app.chat_search_matches.is_empty() {
+                                    if app.chat_search_current == 0 {
+                                        app.chat_search_current = app.chat_search_matches.len() - 1;
+                                    } else {
+                                        app.chat_search_current -= 1;
+                                    }
+                                    app.scroll_to_search_match();
+                                }
+                            }
                             KeyCode::Char('f') => {
                                 app.chat_fullscreen = !app.chat_fullscreen;
-                            }
-                            KeyCode::Char('o') => {
-                                // Open JSONL file in a new window
-                                if let Some(s) = app.selected_session() {
-                                    let p = s.file_path.clone();
-                                    let _ = std::process::Command::new("open")
-                                        .arg(p)
-                                        .stdout(std::process::Stdio::null())
-                                        .stderr(std::process::Stdio::null())
-                                        .spawn();
-                                }
                             }
                             KeyCode::Char('c') => {
                                 // Clean exit, then hand off terminal to claude --resume

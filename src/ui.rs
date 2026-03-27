@@ -151,6 +151,13 @@ pub struct App {
     pub chat_scroll_y: std::cell::Cell<u16>,
     pub clickable_lines: std::cell::RefCell<Vec<(usize, usize)>>, // (line_index, msg_index) for ToolUse
     matcher: SkimMatcherV2,
+    // In-chat search state
+    pub chat_search_active: bool,
+    pub chat_search_query: String,
+    pub chat_search_matches: Vec<usize>,  // line indices with matches
+    pub chat_search_current: usize,       // index into chat_search_matches
+    pub chat_total_lines: usize,          // total rendered lines (set by draw)
+    pub chat_inner_h: usize,              // visible chat height (set by draw)
 }
 
 impl App {
@@ -175,6 +182,12 @@ impl App {
             chat_scroll_y: std::cell::Cell::new(0),
             clickable_lines: std::cell::RefCell::new(Vec::new()),
             matcher: SkimMatcherV2::default(),
+            chat_search_active: false,
+            chat_search_query: String::new(),
+            chat_search_matches: Vec::new(),
+            chat_search_current: 0,
+            chat_total_lines: 0,
+            chat_inner_h: 0,
         }
     }
 
@@ -187,6 +200,21 @@ impl App {
             self.cursor = self.cursor.saturating_sub((-delta) as usize);
         } else {
             self.cursor = (self.cursor + delta as usize).min(len - 1);
+        }
+    }
+
+    pub fn scroll_to_search_match(&mut self) {
+        if let Some(&line_idx) = self.chat_search_matches.get(self.chat_search_current) {
+            let max_scroll = self.chat_total_lines.saturating_sub(self.chat_inner_h);
+            // Center the match in the viewport
+            let half = self.chat_inner_h / 2;
+            if line_idx >= max_scroll {
+                self.detail_scroll = 0;
+            } else {
+                self.detail_scroll = max_scroll.saturating_sub(line_idx).saturating_sub(half);
+            }
+            // Clamp
+            self.detail_scroll = self.detail_scroll.min(max_scroll);
         }
     }
 
@@ -564,17 +592,49 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
         // Chat + mascot
         draw_claude_animation(f, chunks[1], &session, app);
 
-        // Footer
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::styled(" f ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("exit fullscreen  ", Style::default().fg(LABEL)),
-            Span::styled("↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("scroll  ", Style::default().fg(LABEL)),
-            Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("expand/collapse  ", Style::default().fg(LABEL)),
-            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("back", Style::default().fg(LABEL)),
-        ])), chunks[2]);
+        // Footer — changes based on search state
+        let fs_footer = if app.chat_search_active {
+            Paragraph::new(Line::from(vec![
+                Span::styled(" /", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled(app.chat_search_query.to_string(), Style::default().fg(Color::White)),
+                Span::styled("█  ", Style::default().fg(Color::Rgb(255, 160, 40))),
+                Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled("confirm  ", Style::default().fg(LABEL)),
+                Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled("cancel", Style::default().fg(LABEL)),
+            ]))
+        } else if !app.chat_search_query.is_empty() {
+            let match_info = if app.chat_search_matches.is_empty() {
+                "no matches".to_string()
+            } else {
+                format!("{}/{}", app.chat_search_current + 1, app.chat_search_matches.len())
+            };
+            Paragraph::new(Line::from(vec![
+                Span::styled(" n", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled("ext  ", Style::default().fg(LABEL)),
+                Span::styled("N", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled("prev  ", Style::default().fg(LABEL)),
+                Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled("search  ", Style::default().fg(LABEL)),
+                Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled("clear  ", Style::default().fg(LABEL)),
+                Span::styled(format!("({})", match_info), Style::default().fg(Color::Rgb(255, 160, 40))),
+            ]))
+        } else {
+            Paragraph::new(Line::from(vec![
+                Span::styled(" f ", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled("exit fullscreen  ", Style::default().fg(LABEL)),
+                Span::styled("↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled("scroll  ", Style::default().fg(LABEL)),
+                Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled("search  ", Style::default().fg(LABEL)),
+                Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled("expand/collapse  ", Style::default().fg(LABEL)),
+                Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+                Span::styled("back", Style::default().fg(LABEL)),
+            ]))
+        };
+        f.render_widget(fs_footer, chunks[2]);
         return;
     }
 
@@ -836,24 +896,109 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
     // ── Row 3: Claude Animation ──
     draw_claude_animation(f, chunks[3], &session, app);
 
-    // Footer
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled(" ↑↓", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("scroll ", Style::default().fg(LABEL)),
-        Span::styled("f", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("ullscreen ", Style::default().fg(LABEL)),
-        Span::styled("c", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("laude ", Style::default().fg(LABEL)),
-        Span::styled("o", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("pen ", Style::default().fg(LABEL)),
-        Span::styled("←→", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("nav ", Style::default().fg(LABEL)),
-        Span::styled("Esc", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("back", Style::default().fg(LABEL)),
-    ]));
+    // Footer — changes based on search state
+    let footer = if app.chat_search_active {
+        Paragraph::new(Line::from(vec![
+            Span::styled(" /", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled(app.chat_search_query.to_string(), Style::default().fg(Color::White)),
+            Span::styled("█  ", Style::default().fg(Color::Rgb(255, 160, 40))),
+            Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("confirm  ", Style::default().fg(LABEL)),
+            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("cancel", Style::default().fg(LABEL)),
+        ]))
+    } else if !app.chat_search_query.is_empty() {
+        let match_info = if app.chat_search_matches.is_empty() {
+            "no matches".to_string()
+        } else {
+            format!("{}/{}", app.chat_search_current + 1, app.chat_search_matches.len())
+        };
+        Paragraph::new(Line::from(vec![
+            Span::styled(" n", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("ext  ", Style::default().fg(LABEL)),
+            Span::styled("N", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("prev  ", Style::default().fg(LABEL)),
+            Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("search  ", Style::default().fg(LABEL)),
+            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("clear  ", Style::default().fg(LABEL)),
+            Span::styled(format!("({})", match_info), Style::default().fg(Color::Rgb(255, 160, 40))),
+        ]))
+    } else {
+        Paragraph::new(Line::from(vec![
+            Span::styled(" ↑↓", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("scroll ", Style::default().fg(LABEL)),
+            Span::styled("f", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("ullscreen ", Style::default().fg(LABEL)),
+            Span::styled("c", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("laude ", Style::default().fg(LABEL)),
+            Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("search ", Style::default().fg(LABEL)),
+            Span::styled("←→", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("nav  ", Style::default().fg(LABEL)),
+            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("back", Style::default().fg(LABEL)),
+        ]))
+    };
     f.render_widget(footer, chunks[4]);
 }
 
+
+/// Highlight search matches in rendered lines. Returns indices of lines that contain matches.
+fn highlight_search_matches(lines: &mut Vec<Line<'_>>, query: &str, current_match_line: Option<usize>) -> Vec<usize> {
+    let query_lower = query.to_lowercase();
+    let highlight = Style::default().fg(Color::Black).bg(Color::Yellow);
+    let current_highlight = Style::default().fg(Color::Black).bg(Color::Rgb(255, 160, 40));
+    let mut match_lines: Vec<usize> = Vec::new();
+
+    for (line_idx, line) in lines.iter_mut().enumerate() {
+        // Check if any span in this line contains the query
+        let has_match = line.spans.iter().any(|s| {
+            s.content.to_lowercase().contains(&query_lower)
+        });
+        if !has_match { continue; }
+
+        match_lines.push(line_idx);
+        let is_current = current_match_line == Some(line_idx);
+        let hl = if is_current { current_highlight } else { highlight };
+
+        // Split spans at match boundaries
+        let old_spans: Vec<Span<'_>> = std::mem::take(&mut line.spans);
+        let mut new_spans: Vec<Span<'_>> = Vec::new();
+
+        for span in old_spans {
+            let text = span.content.to_string();
+            let text_lower = text.to_lowercase();
+            let style = span.style;
+
+            if !text_lower.contains(&query_lower) {
+                new_spans.push(Span::styled(text, style));
+                continue;
+            }
+
+            let mut pos = 0;
+            let qlen = query_lower.len();
+
+            while pos < text.len() {
+                if let Some(found) = text_lower[pos..].find(&query_lower) {
+                    let abs = pos + found;
+                    if abs > pos {
+                        new_spans.push(Span::styled(text[pos..abs].to_string(), style));
+                    }
+                    new_spans.push(Span::styled(text[abs..abs + qlen].to_string(), hl));
+                    pos = abs + qlen;
+                } else {
+                    new_spans.push(Span::styled(text[pos..].to_string(), style));
+                    break;
+                }
+            }
+        }
+
+        *line = Line::from(new_spans);
+    }
+
+    match_lines
+}
 
 /// Parse inline markdown: **bold** and `code` into styled spans
 fn parse_inline_md<'a>(text: &'a str, base_style: Style) -> Vec<Span<'a>> {
@@ -897,7 +1042,7 @@ fn parse_inline_md<'a>(text: &'a str, base_style: Style) -> Vec<Span<'a>> {
     spans
 }
 
-fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &App) {
+fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut App) {
     let detail_scroll = app.detail_scroll;
     let mascot = &app.mascot;
     let char_h = 9u16;
@@ -1115,24 +1260,47 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &App
         }
     }
 
+    // ── Search highlighting ──
+    if !app.chat_search_query.is_empty() {
+        let current_line = app.chat_search_matches.get(app.chat_search_current).copied();
+        let match_indices = highlight_search_matches(&mut lines, &app.chat_search_query, current_line);
+        app.chat_search_matches = match_indices;
+        // Re-clamp current if matches changed
+        if !app.chat_search_matches.is_empty() && app.chat_search_current >= app.chat_search_matches.len() {
+            app.chat_search_current = 0;
+        }
+    } else {
+        app.chat_search_matches.clear();
+    }
+
     let chat_block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(BORDER))
         .title(" Chat ")
         .title_style(Style::default().fg(Color::White).bold());
 
-    let inner_w = chat_block.inner(chat_area).width as usize;
+    let _inner_w = chat_block.inner(chat_area).width as usize;
     let inner_h = chat_block.inner(chat_area).height as usize;
 
-    // Lines are pre-wrapped, so total = lines.len()
+    // Store for scroll_to_search_match
     let total_lines = lines.len();
+    app.chat_total_lines = total_lines;
+    app.chat_inner_h = inner_h;
+
     let max_scroll = total_lines.saturating_sub(inner_h);
 
     // detail_scroll: 0 = bottom (latest), higher = scrolled up
     let scroll_y = (max_scroll.saturating_sub(detail_scroll) as u16).min(total_lines as u16);
     app.chat_scroll_y.set(scroll_y);
 
-    let scroll_label = if detail_scroll > 0 {
+    let scroll_label = if !app.chat_search_query.is_empty() {
+        let total = app.chat_search_matches.len();
+        if total > 0 {
+            format!(" Chat [{}/{}] ", app.chat_search_current + 1, total)
+        } else {
+            " Chat [no matches] ".to_string()
+        }
+    } else if detail_scroll > 0 {
         format!(" Chat [{}↑] ", detail_scroll)
     } else {
         format!(" Chat [{} msgs] ", lines.iter().filter(|l| !l.spans.is_empty()).count())
