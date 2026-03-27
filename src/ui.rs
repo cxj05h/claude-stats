@@ -206,15 +206,11 @@ impl App {
     pub fn scroll_to_search_match(&mut self) {
         if let Some(&line_idx) = self.chat_search_matches.get(self.chat_search_current) {
             let max_scroll = self.chat_total_lines.saturating_sub(self.chat_inner_h);
-            // Center the match in the viewport
             let half = self.chat_inner_h / 2;
-            if line_idx >= max_scroll {
-                self.detail_scroll = 0;
-            } else {
-                self.detail_scroll = max_scroll.saturating_sub(line_idx).saturating_sub(half);
-            }
-            // Clamp
-            self.detail_scroll = self.detail_scroll.min(max_scroll);
+            // Center the match: Paragraph scroll_y = line_idx - half (skip lines before match)
+            // detail_scroll is inverted: 0 = bottom, max_scroll = top
+            let scroll_y = line_idx.saturating_sub(half);
+            self.detail_scroll = max_scroll.saturating_sub(scroll_y).min(max_scroll);
         }
     }
 
