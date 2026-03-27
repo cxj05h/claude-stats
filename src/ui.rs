@@ -3,7 +3,7 @@ use fuzzy_matcher::FuzzyMatcher;
 use ratatui::{prelude::*, widgets::*};
 use std::time::{Duration, Instant};
 
-use crate::session::{fmt_ago, fmt_duration, fmt_tokens, short_model, Session, SessionStore};
+use crate::session::{fmt_ago, fmt_duration, fmt_tokens, friendly_mcp_name, short_model, Session, SessionStore};
 
 use crate::session::context_window_for_model;
 
@@ -326,8 +326,8 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     let current_sid = app.store.current_session_id.as_deref();
 
     let header_cells = [
-        "", "Title", "Model", "Effort", "Turns", "Tools", "MCPs",
-        "Out Tkns", "Context", "Duration", "When",
+        "", "Title", "Model", "Effort", "Tokens", "Turns", "MCPs",
+        "When", "Duration",
     ]
     .iter()
     .map(|h| Cell::from(*h).style(Style::default().fg(LABEL).bold()))
@@ -400,19 +400,11 @@ fn draw_list(f: &mut Frame, app: &mut App) {
 
             let when = s.end_ts.as_ref().map(fmt_ago).unwrap_or_default();
 
-            let ctx = if s.last_context_read > 0 {
-                let cw = context_window_for_model(&s.model);
-                let pct = (s.last_context_read as f64 / cw as f64 * 100.0).min(100.0);
-                format!("{:.0}%", pct)
-            } else {
-                String::new()
-            };
-
             let mcp_str: String = s
                 .mcp_tools
                 .keys()
                 .take(2)
-                .cloned()
+                .map(|k| friendly_mcp_name(k))
                 .collect::<Vec<_>>()
                 .join(" ");
 
@@ -439,30 +431,26 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                     if s.model.contains("opus") { Color::Magenta } else { Color::Cyan }
                 )),
                 Cell::from(effort).style(Style::default().fg(Color::Yellow)),
+                Cell::from(fmt_tokens(s.total_input + s.total_output)).style(Style::default().fg(Color::Green)),
                 Cell::from(s.turns.to_string()),
-                Cell::from(s.tool_calls.to_string()),
                 Cell::from(mcp_str).style(Style::default().fg(Color::Blue)),
-                Cell::from(fmt_tokens(s.total_output)).style(Style::default().fg(Color::Green)),
-                Cell::from(ctx),
-                Cell::from(dur).style(Style::default().fg(LABEL)),
                 Cell::from(when).style(Style::default().fg(LABEL)),
+                Cell::from(dur).style(Style::default().fg(LABEL)),
             ])
             .style(row_style)
         })
         .collect();
 
     let widths = [
-        Constraint::Length(2),
-        Constraint::Min(20),
-        Constraint::Length(12),
-        Constraint::Length(6),
-        Constraint::Length(5),
-        Constraint::Length(5),
-        Constraint::Length(14),
-        Constraint::Length(10),
-        Constraint::Length(8),
-        Constraint::Length(9),
-        Constraint::Length(10),
+        Constraint::Length(2),   // marker
+        Constraint::Min(20),     // title
+        Constraint::Length(12),  // model
+        Constraint::Length(6),   // effort
+        Constraint::Length(8),   // tokens (total)
+        Constraint::Length(5),   // turns
+        Constraint::Length(14),  // mcps
+        Constraint::Length(10),  // when
+        Constraint::Length(9),   // duration
     ];
 
     let table = Table::new(rows, widths)

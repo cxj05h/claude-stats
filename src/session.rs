@@ -100,6 +100,30 @@ pub fn short_model(model: &str) -> String {
     }
 }
 
+/// Parse raw MCP server key into a friendly display name.
+/// e.g. "plugin_github_github" → "GitHub", "claude_ai_Notion" → "Notion"
+pub fn friendly_mcp_name(raw: &str) -> String {
+    if let Some(rest) = raw.strip_prefix("claude_ai_") {
+        return rest.to_string();
+    }
+    if let Some(rest) = raw.strip_prefix("plugin_") {
+        // plugin_github_github → take first segment after "plugin_"
+        if let Some(name) = rest.split('_').next() {
+            let mut chars = name.chars();
+            if let Some(first) = chars.next() {
+                return first.to_uppercase().to_string() + chars.as_str();
+            }
+        }
+    }
+    // Bare name like "perplexity" → capitalize
+    let mut chars = raw.chars();
+    if let Some(first) = chars.next() {
+        first.to_uppercase().to_string() + chars.as_str()
+    } else {
+        raw.to_string()
+    }
+}
+
 /// Strip XML-like tags from preview text (system reminders, command tags, etc.)
 fn strip_xml_tags(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
