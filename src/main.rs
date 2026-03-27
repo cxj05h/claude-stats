@@ -177,7 +177,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             KeyCode::Up => {
-                                app.detail_scroll += 1;
+                                app.detail_scroll = (app.detail_scroll + 1).min(app.chat_max_scroll);
                                 app.mascot.on_scroll();
                             }
                             KeyCode::Down => {
@@ -185,7 +185,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.mascot.on_scroll();
                             }
                             KeyCode::PageUp => {
-                                app.detail_scroll += 10;
+                                app.detail_scroll = (app.detail_scroll + 10).min(app.chat_max_scroll);
                                 app.mascot.on_scroll();
                             }
                             KeyCode::PageDown => {
@@ -193,7 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.mascot.on_scroll();
                             }
                             KeyCode::Home => {
-                                app.detail_scroll = usize::MAX;
+                                app.detail_scroll = app.chat_max_scroll;
                             }
                             KeyCode::End => {
                                 app.detail_scroll = 0;
@@ -254,7 +254,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         AppMode::Detail => {
                             match mouse.kind {
                                 MouseEventKind::ScrollUp => {
-                                    app.detail_scroll += 4; // fast scroll
+                                    app.detail_scroll = (app.detail_scroll + 4).min(app.chat_max_scroll);
                                     app.mascot.on_scroll();
                                 }
                                 MouseEventKind::ScrollDown => {
@@ -295,7 +295,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 if let Some(s) = app.selected_session() {
                                                     if let session::ContentBlock::ToolUse { old_str, new_str, .. } = &s.messages[msg_idx].block {
                                                         let diff_lines = old_str.lines().count() + new_str.lines().count() + 1;
-                                                        app.detail_scroll += diff_lines;
+                                                        app.detail_scroll = (app.detail_scroll + diff_lines).min(app.chat_max_scroll);
                                                     }
                                                 }
                                                 app.expanded_msgs.insert(msg_idx);

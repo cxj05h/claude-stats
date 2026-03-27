@@ -160,6 +160,7 @@ pub struct App {
     pub chat_total_lines: usize,          // total rendered lines (set by draw)
     pub chat_inner_h: usize,              // visible chat height (set by draw)
     pub mouse_captured: bool,             // whether mouse events are captured (vs terminal selection)
+    pub chat_max_scroll: usize,           // max valid detail_scroll (set by draw)
 }
 
 impl App {
@@ -191,6 +192,7 @@ impl App {
             chat_search_current: 0,
             chat_total_lines: 0,
             chat_inner_h: 0,
+            chat_max_scroll: 0,
         }
     }
 
@@ -1479,6 +1481,7 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
     app.chat_inner_h = inner_h;
 
     let max_scroll = total_lines.saturating_sub(inner_h);
+    app.chat_max_scroll = max_scroll;
 
     // detail_scroll: 0 = bottom (latest), higher = scrolled up
     let scroll_y = (max_scroll.saturating_sub(detail_scroll) as u16).min(total_lines as u16);
