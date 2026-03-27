@@ -68,10 +68,12 @@ pub struct SessionStore {
     pub sessions: Vec<Session>,
     pub current_session_id: Option<String>,
     pub current_effort: String,
+    #[allow(dead_code)]
     pub stats_cache: Option<StatsCache>,
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct StatsCache {
     pub total_sessions: u64,
     pub total_messages: u64,

@@ -147,6 +147,7 @@ pub struct App {
     pub list_info_tab: usize,
     pub mascot: Mascot,
     pub expanded_msgs: std::collections::HashSet<usize>,
+    #[allow(dead_code)]
     pub tool_summary_indices: Vec<usize>,  // msg indices that have tool summaries
     pub chat_area_top: u16,
     pub chat_scroll_y: std::cell::Cell<u16>,
@@ -1392,7 +1393,7 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
                 if expanded {
                     let del_count = old_str.lines().count();
                     let add_count = new_str.lines().count();
-                    let line_num_w = 4; // width for line numbers
+                    let _line_num_w = 4; // width for line numbers
                     lines.push(Line::from(vec![
                         Span::styled("            └ ", Style::default().fg(tool_dim)),
                         Span::styled(format!("Added {} lines, removed {} lines", add_count, del_count), Style::default().fg(tool_dim)),

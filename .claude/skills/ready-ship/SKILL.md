@@ -9,43 +9,64 @@ Ship the current state of claude-stats to GitHub. This skill handles the full pi
 
 ## Workflow
 
-### 1. Validate the build
+### 0. Hard gate: must be on main
 
-Before shipping anything, make sure the code is clean:
-
+```bash
+git branch --show-current
 ```
+
+If not on `main`, **stop immediately** and tell the user:
+
+> "You're on branch `<branch-name>`. `/ready-ship` only ships from `main`. Run `/cs-feature` to merge your feature branch to main first, then come back here."
+
+Do not proceed. Do not offer to push the feature branch to origin — that's not this workflow's job.
+
+### 1. Pull latest
+
+Before building, make sure local main is up to date:
+
+```bash
 source ~/.cargo/env
+git pull origin main
+```
+
+If the pull fails (e.g. diverged history), stop and explain. Never force-push or reset without explicit user approval.
+
+### 2. Validate the build
+
+```bash
 cargo clippy 2>&1
 cargo build --release
 ```
 
-If clippy has warnings, fix them before proceeding. If the build fails, stop and report the error -- never push broken code.
+If clippy has warnings, fix them before proceeding. If the build fails, stop and report the error — never push broken code.
 
-### 2. Install the binary
+### 3. Install the binary
 
 Copy the fresh build so the installed version matches what's being shipped:
 
-```
+```bash
 cp target/release/claude-stats ~/.local/bin/claude-stats
+~/.local/bin/claude-stats --help 2>&1 || echo "Binary runs"
 ```
 
-### 3. Track new files
+### 4. Track new files
 
 Check for untracked files that should be in the repo:
 
-```
+```bash
 git status
 ```
 
-If there are new source files (`.rs`, `.toml`, `.md`, `.yml`, etc.), stage them. Ignore build artifacts -- the `.gitignore` covers `target/`.
+If there are new source files (`.rs`, `.toml`, `.md`, `.yml`, etc.), stage them. Ignore build artifacts — `.gitignore` covers `target/`.
 
 If a file was deleted, make sure it's properly removed from tracking too (`git rm`).
 
-### 4. Review changes and update the README
+### 5. Review changes and update the README
 
 Look at what changed since the last commit:
 
-```
+```bash
 git diff
 git diff --cached
 git log --oneline -5
@@ -59,35 +80,38 @@ Read the current `README.md` and decide:
 - **Feature removed or deprecated?** Remove it from the README. Don't leave stale descriptions.
 - **Nothing user-facing changed?** Leave the README alone. Internal refactors don't need README updates.
 
-The README should always accurately describe what the app currently does -- no aspirational features, no stale descriptions. When in doubt, read the source to verify.
+The README should always accurately describe what the app currently does — no aspirational features, no stale descriptions. When in doubt, read the source to verify.
 
-### 5. Commit
+### 6. Commit
 
-Stage all relevant changes and create a commit. Write a message that describes what changed and why, not just "update files":
+Stage all relevant changes and create a commit. Write a message that describes what changed and why:
 
-```
+```bash
 git add <specific files>
 git commit -m "$(cat <<'EOF'
 <concise description of changes>
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
 )"
 ```
 
-Prefer specific file adds over `git add .` to avoid accidentally committing sensitive files.
+Prefer specific file adds over `git add .` to avoid accidentally committing sensitive files or worktree directories.
 
-### 6. Push
+### 7. Push
 
-```
+```bash
 git push origin main
 ```
 
-If on a feature branch (not main), push that branch instead -- don't push to main. The `/cs-feature` skill handles merging feature branches.
+**If push fails:**
+- **Authentication error**: Tell the user to check their GitHub credentials. Suggest `gh auth status` to diagnose.
+- **Remote has diverged** (`rejected, non-fast-forward`): Do NOT force push. Pull first (`git pull origin main`), resolve any conflicts, then push again.
+- **Other errors**: Show the full error output. Don't retry blindly.
 
-### 7. Release (optional)
+### 8. Release (optional)
 
-Ask the user: "Want to cut a release?" If they say yes (or if they asked for a release upfront):
+Ask the user: "Want to cut a release?" If yes (or if they asked for a release upfront):
 
 **a. Bump the version in `Cargo.toml`:**
 
@@ -100,19 +124,19 @@ Ask the user to confirm the version if unsure.
 
 **b. Commit the version bump:**
 
-```
+```bash
 git add Cargo.toml Cargo.lock
 git commit -m "$(cat <<'EOF'
 chore: bump version to v<X.Y.Z>
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
 )"
 ```
 
 **c. Tag and push:**
 
-```
+```bash
 git tag v<X.Y.Z>
 git push origin main --tags
 ```
@@ -125,7 +149,7 @@ Pushing the tag triggers the CI workflow (`.github/workflows/release.yml`) which
 
 **d. Monitor the release:**
 
-```
+```bash
 gh run list --limit 1
 ```
 
@@ -133,9 +157,9 @@ Tell the user the CI is building and they can check progress with `gh run watch`
 - Binaries appear at `https://github.com/cxj05h/claude-stats/releases`
 - The `update-homebrew` CI job automatically rewrites `Formula/claude-stats.rb` in `cxj05h/homebrew-tap` with new SHA256s and pushes it
 
-**No manual Homebrew update needed** — the CI handles it end-to-end. After the workflow completes, users on the tap can run `brew upgrade claude-stats` to get the new version.
+**No manual Homebrew update needed** — the CI handles it end-to-end. After the workflow completes, users can run `brew upgrade claude-stats`.
 
-### 8. Confirm
+### 9. Confirm
 
 Report back with:
 - What was committed (files changed, summary)
