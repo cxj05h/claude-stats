@@ -347,9 +347,11 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             let title_style = if is_selected {
                 Style::default().fg(Color::White).bold()
             } else if is_live {
-                Style::default().fg(Color::Green)
-            } else {
+                Style::default().fg(Color::Green).bold()
+            } else if is_agent {
                 Style::default().fg(Color::White)
+            } else {
+                Style::default().fg(Color::Yellow)
             };
 
             let model = short_model(&s.model);
@@ -386,15 +388,25 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 .collect::<Vec<_>>()
                 .join(" ");
 
+            let live_label = if is_live && !is_selected {
+                " ◉ live"
+            } else {
+                ""
+            };
+
             let row_style = if is_selected {
                 Style::default().bg(SEL_BG)
+            } else if is_live {
+                Style::default().bg(Color::Rgb(10, 38, 18))
             } else {
                 Style::default()
             };
 
+            let title_with_label = format!("{}{}", title, live_label);
+
             Row::new(vec![
                 Cell::from(marker).style(marker_style),
-                Cell::from(title).style(title_style),
+                Cell::from(title_with_label).style(title_style),
                 Cell::from(model).style(Style::default().fg(
                     if s.model.contains("opus") { Color::Magenta } else { Color::Cyan }
                 )),

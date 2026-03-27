@@ -526,16 +526,20 @@ impl SessionStore {
     }
 
     fn find_live_session(sessions: &[Session]) -> Option<String> {
-        let now = Utc::now();
-        let mut best: Option<(&Session, DateTime<Utc>)> = None;
+        let now = std::time::SystemTime::now();
+        let ten_min = std::time::Duration::from_secs(600);
+        let mut best: Option<(&Session, std::time::SystemTime)> = None;
 
         for s in sessions {
-            if let Some(end) = s.end_ts {
-                let age = now.signed_duration_since(end);
-                if age.num_minutes() < 10 {
+            let mtime = fs::metadata(&s.file_path)
+                .and_then(|m| m.modified())
+                .ok();
+            if let Some(mt) = mtime {
+                let age = now.duration_since(mt).unwrap_or(std::time::Duration::MAX);
+                if age < ten_min {
                     match best {
-                        None => best = Some((s, end)),
-                        Some((_, prev_end)) if end > prev_end => best = Some((s, end)),
+                        None => best = Some((s, mt)),
+                        Some((_, prev_mt)) if mt > prev_mt => best = Some((s, mt)),
                         _ => {}
                     }
                 }
