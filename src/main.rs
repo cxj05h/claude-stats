@@ -8,6 +8,8 @@ use crossterm::{
 };
 use ratatui::prelude::*;
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use session::SessionStore;
 use ui::{App, AppMode};
@@ -25,12 +27,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?; // clean slate — no artifacts from previous terminal
 
+    // Handle SIGTERM (e.g. from `killall claude-stats`) gracefully so
+    // LeaveAlternateScreen runs and terminal burn-in doesn't occur.
+    let quit_signal = Arc::new(AtomicBool::new(false));
+    signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&quit_signal))?;
+
     // Load sessions
     let store = SessionStore::load();
     let mut app = App::new(store);
 
     // Main loop — reload sessions every ~3 seconds (30 ticks at 100ms)
     'main: loop {
+        if quit_signal.load(Ordering::Relaxed) {
+            break;
+        }
         app.tick += 1;
         app.mascot.update();
 

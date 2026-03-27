@@ -16,6 +16,7 @@ chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 fuzzy-matcher = "0.3"
 pulldown-cmark = { version = "0.13", default-features = false }
+signal-hook = "0.3"
 
 [profile.release]
 opt-level = 3
