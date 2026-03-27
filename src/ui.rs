@@ -34,9 +34,9 @@ pub struct Mascot {
 impl Mascot {
     pub fn new() -> Self {
         Self {
-            state: MascotState::Idle,
-            last_scroll: Instant::now(),
-            tick: 0,
+  state: MascotState::Idle,
+  last_scroll: Instant::now(),
+  tick: 0,
         }
     }
 
@@ -47,13 +47,13 @@ impl Mascot {
 
     pub fn update(&mut self) {
         match self.state {
-            MascotState::Animating => {
-                self.tick += 1;
-                if self.last_scroll.elapsed() > Duration::from_millis(150) {
-                    self.state = MascotState::Idle;
-                }
-            }
-            MascotState::Idle => {}
+  MascotState::Animating => {
+      self.tick += 1;
+      if self.last_scroll.elapsed() > Duration::from_millis(150) {
+self.state = MascotState::Idle;
+      }
+  }
+  MascotState::Idle => {}
         }
     }
 
@@ -62,22 +62,22 @@ impl Mascot {
         // 14 columns wide (28 terminal chars), 7 rows (7 terminal lines)
 
         let tick = match self.state {
-            MascotState::Animating => self.tick,
-            MascotState::Idle => 0,
+  MascotState::Animating => self.tick,
+  MascotState::Idle => 0,
         };
 
         // Eye blink
         let blink = if self.state == MascotState::Idle {
-            self.last_scroll.elapsed().as_millis() % 4000 < 200
+  self.last_scroll.elapsed().as_millis() % 4000 < 200
         } else {
-            tick % 40 < 2
+  tick % 40 < 2
         };
 
         // Wing flap
         let flap = if self.state == MascotState::Animating {
-            (tick / 6) % 3
+  (tick / 6) % 3
         } else {
-            0
+  0
         };
 
         // Resolve dynamic pixels as bools: true = filled, false = empty
@@ -89,13 +89,13 @@ impl Mascot {
         let o = false;
 
         let grid: Vec<Vec<bool>> = vec![
-            vec![o, o, o, t, t, o, t, t, o, t, t, o, o, o], // bumps
-            vec![o, o, t, t, t, t, t, t, t, t, t, t, o, o], // body top
-            vec![o, o, t, t, eye, eye, t, t, eye, eye, t, t, o, o], // eyes
-            vec![o, o, t, t, t, t, t, t, t, t, t, t, o, o], // body mid
-            vec![o, wl, t, t, t, t, t, t, t, t, t, t, wr, o], // arms
-            vec![o, o, t, t, t, t, t, t, t, t, t, t, o, o], // body bottom
-            vec![o, o, t, o, t, t, o, o, t, t, o, t, o, o], // legs
+  vec![o, o, o, t, t, o, t, t, o, t, t, o, o, o], // bumps
+  vec![o, o, t, t, t, t, t, t, t, t, t, t, o, o], // body top
+  vec![o, o, t, t, eye, eye, t, t, eye, eye, t, t, o, o], // eyes
+  vec![o, o, t, t, t, t, t, t, t, t, t, t, o, o], // body mid
+  vec![o, wl, t, t, t, t, t, t, t, t, t, t, wr, o], // arms
+  vec![o, o, t, t, t, t, t, t, t, t, t, t, o, o], // body bottom
+  vec![o, o, t, o, t, t, o, o, t, t, o, t, o, o], // legs
         ];
 
         let body_color = CLAUDE_COLOR;
@@ -108,19 +108,19 @@ impl Mascot {
         // Top padding if space allows
         let top_pad = char_area.height.saturating_sub(7) / 2;
         for _ in 0..top_pad {
-            lines.push(Line::from(""));
+  lines.push(Line::from(""));
         }
 
         for row in &grid {
-            let mut spans: Vec<Span> = vec![Span::raw(" ".repeat(pad))];
-            for &px in row {
-                if px {
-                    spans.push(Span::styled("  ", filled));
-                } else {
-                    spans.push(Span::raw("  "));
-                }
-            }
-            lines.push(Line::from(spans));
+  let mut spans: Vec<Span> = vec![Span::raw(" ".repeat(pad))];
+  for &px in row {
+      if px {
+spans.push(Span::styled("  ", filled));
+      } else {
+spans.push(Span::raw("  "));
+      }
+  }
+  lines.push(Line::from(spans));
         }
 
         f.render_widget(Paragraph::new(lines), char_area);
@@ -156,8 +156,8 @@ pub struct App {
     pub chat_search_query: String,
     pub chat_search_matches: Vec<usize>,  // line indices with matches
     pub chat_search_current: usize,       // index into chat_search_matches
-    pub chat_total_lines: usize,          // total rendered lines (set by draw)
-    pub chat_inner_h: usize,              // visible chat height (set by draw)
+    pub chat_total_lines: usize,// total rendered lines (set by draw)
+    pub chat_inner_h: usize,    // visible chat height (set by draw)
 }
 
 impl App {
@@ -165,78 +165,78 @@ impl App {
         let count = store.sessions.len();
         let filtered_indices: Vec<usize> = (0..count).collect();
         App {
-            store,
-            mode: AppMode::List,
-            cursor: 0,
-            search_query: String::new(),
-            filtered_indices,
-            list_offset: 0,
-            tick: 0,
-            detail_scroll: 0,
-            chat_fullscreen: false,
-            list_info_tab: 0,
-            mascot: Mascot::new(),
-            expanded_msgs: std::collections::HashSet::new(),
-            tool_summary_indices: Vec::new(),
-            chat_area_top: 0,
-            chat_scroll_y: std::cell::Cell::new(0),
-            clickable_lines: std::cell::RefCell::new(Vec::new()),
-            matcher: SkimMatcherV2::default(),
-            chat_search_active: false,
-            chat_search_query: String::new(),
-            chat_search_matches: Vec::new(),
-            chat_search_current: 0,
-            chat_total_lines: 0,
-            chat_inner_h: 0,
+  store,
+  mode: AppMode::List,
+  cursor: 0,
+  search_query: String::new(),
+  filtered_indices,
+  list_offset: 0,
+  tick: 0,
+  detail_scroll: 0,
+  chat_fullscreen: false,
+  list_info_tab: 0,
+  mascot: Mascot::new(),
+  expanded_msgs: std::collections::HashSet::new(),
+  tool_summary_indices: Vec::new(),
+  chat_area_top: 0,
+  chat_scroll_y: std::cell::Cell::new(0),
+  clickable_lines: std::cell::RefCell::new(Vec::new()),
+  matcher: SkimMatcherV2::default(),
+  chat_search_active: false,
+  chat_search_query: String::new(),
+  chat_search_matches: Vec::new(),
+  chat_search_current: 0,
+  chat_total_lines: 0,
+  chat_inner_h: 0,
         }
     }
 
     pub fn move_cursor(&mut self, delta: i32) {
         if self.filtered_indices.is_empty() {
-            return;
+  return;
         }
         let len = self.filtered_indices.len();
         if delta < 0 {
-            self.cursor = self.cursor.saturating_sub((-delta) as usize);
+  self.cursor = self.cursor.saturating_sub((-delta) as usize);
         } else {
-            self.cursor = (self.cursor + delta as usize).min(len - 1);
+  self.cursor = (self.cursor + delta as usize).min(len - 1);
         }
     }
 
     pub fn scroll_to_search_match(&mut self) {
         if let Some(&line_idx) = self.chat_search_matches.get(self.chat_search_current) {
-            let max_scroll = self.chat_total_lines.saturating_sub(self.chat_inner_h);
-            // Center the match in the viewport
-            let half = self.chat_inner_h / 2;
-            if line_idx >= max_scroll {
-                self.detail_scroll = 0;
-            } else {
-                self.detail_scroll = max_scroll.saturating_sub(line_idx).saturating_sub(half);
-            }
-            // Clamp
-            self.detail_scroll = self.detail_scroll.min(max_scroll);
+  let max_scroll = self.chat_total_lines.saturating_sub(self.chat_inner_h);
+  // Center the match in the viewport
+  let half = self.chat_inner_h / 2;
+  if line_idx >= max_scroll {
+      self.detail_scroll = 0;
+  } else {
+      self.detail_scroll = max_scroll.saturating_sub(line_idx).saturating_sub(half);
+  }
+  // Clamp
+  self.detail_scroll = self.detail_scroll.min(max_scroll);
         }
     }
 
     pub fn update_filtered(&mut self) {
         if self.search_query.is_empty() {
-            self.filtered_indices = (0..self.store.sessions.len().min(30)).collect();
+  self.filtered_indices = (0..self.store.sessions.len().min(30)).collect();
         } else {
-            let query = &self.search_query;
-            let mut scored: Vec<(i64, usize)> = self
-                .store
-                .sessions
-                .iter()
-                .enumerate()
-                .filter_map(|(i, s)| {
-                    let haystack = format!("{} {} {}", s.title, s.cwd, short_model(&s.model));
-                    self.matcher
-                        .fuzzy_match(&haystack, query)
-                        .map(|score| (score, i))
-                })
-                .collect();
-            scored.sort_by(|a, b| b.0.cmp(&a.0));
-            self.filtered_indices = scored.into_iter().map(|(_, i)| i).collect();
+  let query = &self.search_query;
+  let mut scored: Vec<(i64, usize)> = self
+      .store
+      .sessions
+      .iter()
+      .enumerate()
+      .filter_map(|(i, s)| {
+let haystack = format!("{} {} {}", s.title, s.cwd, short_model(&s.model));
+self.matcher
+    .fuzzy_match(&haystack, query)
+    .map(|score| (score, i))
+      })
+      .collect();
+  scored.sort_by(|a, b| b.0.cmp(&a.0));
+  self.filtered_indices = scored.into_iter().map(|(_, i)| i).collect();
         }
         self.cursor = 0;
         self.list_offset = 0;
@@ -244,8 +244,8 @@ impl App {
 
     pub fn selected_session(&self) -> Option<&Session> {
         self.filtered_indices
-            .get(self.cursor)
-            .and_then(|&idx| self.store.sessions.get(idx))
+  .get(self.cursor)
+  .and_then(|&idx| self.store.sessions.get(idx))
     }
 
     pub fn reload_sessions(&mut self) {
@@ -257,12 +257,12 @@ impl App {
 
         // Try to restore cursor to same session
         if let Some(id) = selected_id {
-            for (i, &idx) in self.filtered_indices.iter().enumerate() {
-                if self.store.sessions.get(idx).map(|s| &s.id) == Some(&id) {
-                    self.cursor = i;
-                    break;
-                }
-            }
+  for (i, &idx) in self.filtered_indices.iter().enumerate() {
+      if self.store.sessions.get(idx).map(|s| &s.id) == Some(&id) {
+self.cursor = i;
+break;
+      }
+  }
         }
     }
 }
@@ -280,11 +280,11 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // header
-            Constraint::Length(2), // search
-            Constraint::Min(10),  // table
-            Constraint::Length(2), // info bar
-            Constraint::Length(1), // footer
+  Constraint::Length(3), // header
+  Constraint::Length(2), // search
+  Constraint::Min(10),  // table
+  Constraint::Length(2), // info bar
+  Constraint::Length(1), // footer
         ])
         .split(area);
 
@@ -292,8 +292,8 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     let header = Paragraph::new(Line::from(vec![
         Span::styled("  Claude Stats ", Style::default().bold().fg(Color::White)),
         Span::styled(
-            format!("  {} sessions", app.filtered_indices.len()),
-            Style::default().fg(LABEL),
+  format!("  {} sessions", app.filtered_indices.len()),
+  Style::default().fg(LABEL),
         ),
     ]))
     .block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(LABEL)));
@@ -302,14 +302,14 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     // Search bar
     let search_text = if app.search_query.is_empty() {
         Line::from(vec![
-            Span::styled("  Search: ", Style::default().fg(LABEL)),
-            Span::styled("type to filter...", Style::default().fg(DIM)),
+  Span::styled("  Search: ", Style::default().fg(LABEL)),
+  Span::styled("type to filter...", Style::default().fg(DIM)),
         ])
     } else {
         Line::from(vec![
-            Span::styled("  Search: ", Style::default().fg(LABEL)),
-            Span::styled(&app.search_query, Style::default().bold().fg(Color::White)),
-            Span::styled("█", Style::default().fg(Color::Cyan)),
+  Span::styled("  Search: ", Style::default().fg(LABEL)),
+  Span::styled(&app.search_query, Style::default().bold().fg(Color::White)),
+  Span::styled("█", Style::default().fg(Color::Cyan)),
         ])
     };
     f.render_widget(Paragraph::new(search_text), chunks[1]);
@@ -342,102 +342,102 @@ fn draw_list(f: &mut Frame, app: &mut App) {
         .skip(app.list_offset)
         .take(visible_height)
         .map(|(i, &idx)| {
-            let s = &app.store.sessions[idx];
-            let is_selected = i == app.cursor;
-            let is_live = current_sid.map(|c| c == s.id).unwrap_or(false);
+  let s = &app.store.sessions[idx];
+  let is_selected = i == app.cursor;
+  let is_live = current_sid.map(|c| c == s.id).unwrap_or(false);
 
-            let marker = if is_selected {
-                "▶"
-            } else if is_live {
-                "●"
-            } else {
-                " "
-            };
-            let marker_style = if is_selected {
-                Style::default().fg(FOOTER_KEY).bold()
-            } else if is_live {
-                Style::default().fg(Color::Green)
-            } else {
-                Style::default()
-            };
+  let marker = if is_selected {
+      "▶"
+  } else if is_live {
+      "●"
+  } else {
+      " "
+  };
+  let marker_style = if is_selected {
+      Style::default().fg(FOOTER_KEY).bold()
+  } else if is_live {
+      Style::default().fg(Color::Green)
+  } else {
+      Style::default()
+  };
 
-            let is_agent = s.parent_session_id.is_some();
-            let raw_title = if is_agent {
-                format!("⤷ {}", s.title)
-            } else {
-                s.title.clone()
-            };
-            let title = if raw_title.len() > 28 {
-                format!("{}…", &raw_title[..27])
-            } else {
-                raw_title
-            };
-            let title_style = if is_selected {
-                Style::default().fg(Color::White).bold()
-            } else if is_live {
-                Style::default().fg(Color::Green).bold()
-            } else if is_agent {
-                Style::default().fg(Color::White)
-            } else {
-                Style::default().fg(Color::Yellow)
-            };
+  let is_agent = s.parent_session_id.is_some();
+  let raw_title = if is_agent {
+      format!("⤷ {}", s.title)
+  } else {
+      s.title.clone()
+  };
+  let title = if raw_title.len() > 28 {
+      format!("{}…", &raw_title[..27])
+  } else {
+      raw_title
+  };
+  let title_style = if is_selected {
+      Style::default().fg(Color::White).bold()
+  } else if is_live {
+      Style::default().fg(Color::Green).bold()
+  } else if is_agent {
+      Style::default().fg(Color::White)
+  } else {
+      Style::default().fg(Color::Yellow)
+  };
 
-            let model = short_model(&s.model);
+  let model = short_model(&s.model);
 
-            let effort = if !s.effort_changes.is_empty() {
-                let e = &s.effort_changes.last().unwrap().1;
-                e[..3].to_uppercase()
-            } else {
-                app.store.current_effort[..3].to_uppercase()
-            };
+  let effort = if !s.effort_changes.is_empty() {
+      let e = &s.effort_changes.last().unwrap().1;
+      e[..3].to_uppercase()
+  } else {
+      app.store.current_effort[..3].to_uppercase()
+  };
 
-            let dur = match (s.start_ts, s.end_ts) {
-                (Some(start), Some(end)) => {
-                    fmt_duration((end - start).num_seconds() as f64)
-                }
-                _ => String::new(),
-            };
+  let dur = match (s.start_ts, s.end_ts) {
+      (Some(start), Some(end)) => {
+fmt_duration((end - start).num_seconds() as f64)
+      }
+      _ => String::new(),
+  };
 
-            let when = s.end_ts.as_ref().map(fmt_ago).unwrap_or_default();
+  let when = s.end_ts.as_ref().map(fmt_ago).unwrap_or_default();
 
-            let mcp_str: String = s
-                .mcp_tools
-                .keys()
-                .take(2)
-                .map(|k| friendly_mcp_name(k))
-                .collect::<Vec<_>>()
-                .join(" ");
+  let mcp_str: String = s
+      .mcp_tools
+      .keys()
+      .take(2)
+      .map(|k| friendly_mcp_name(k))
+      .collect::<Vec<_>>()
+      .join(" ");
 
-            let live_label = if is_live && !is_selected {
-                " ◉ live"
-            } else {
-                ""
-            };
+  let live_label = if is_live && !is_selected {
+      " ◉ live"
+  } else {
+      ""
+  };
 
-            let row_style = if is_selected {
-                Style::default().bg(SEL_BG)
-            } else if is_live {
-                Style::default().bg(Color::Rgb(10, 38, 18))
-            } else {
-                Style::default()
-            };
+  let row_style = if is_selected {
+      Style::default().bg(SEL_BG)
+  } else if is_live {
+      Style::default().bg(Color::Rgb(10, 38, 18))
+  } else {
+      Style::default()
+  };
 
-            let title_with_label = format!("{}{}", title, live_label);
+  let title_with_label = format!("{}{}", title, live_label);
 
-            Row::new(vec![
-                Cell::from(marker).style(marker_style),
-                Cell::from(title_with_label).style(title_style),
-                Cell::from(model).style(Style::default().fg(
-                    if s.model.contains("opus") { Color::Magenta } else { Color::Cyan }
-                )),
-                Cell::from(effort).style(Style::default().fg(Color::Yellow)),
-                Cell::from(fmt_tokens(s.total_input + s.total_output)).style(Style::default().fg(Color::Green)),
-                Cell::from(s.turns.to_string()),
-                Cell::from(mcp_str).style(Style::default().fg(Color::Blue)),
-                Cell::from(when).style(Style::default().fg(LABEL)),
-                Cell::from(dur).style(Style::default().fg(LABEL)),
-            ])
-            .style(row_style)
+  Row::new(vec![
+      Cell::from(marker).style(marker_style),
+      Cell::from(title_with_label).style(title_style),
+      Cell::from(model).style(Style::default().fg(
+if s.model.contains("opus") { Color::Magenta } else { Color::Cyan }
+      )),
+      Cell::from(effort).style(Style::default().fg(Color::Yellow)),
+      Cell::from(fmt_tokens(s.total_input + s.total_output)).style(Style::default().fg(Color::Green)),
+      Cell::from(s.turns.to_string()),
+      Cell::from(mcp_str).style(Style::default().fg(Color::Blue)),
+      Cell::from(when).style(Style::default().fg(LABEL)),
+      Cell::from(dur).style(Style::default().fg(LABEL)),
+  ])
+  .style(row_style)
         })
         .collect();
 
@@ -456,72 +456,72 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     let table = Table::new(rows, widths)
         .header(header_row)
         .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(BORDER))
-                .title(" Sessions ")
-                .title_style(Style::default().fg(Color::White).bold()),
+  Block::default()
+      .borders(Borders::ALL)
+      .border_style(Style::default().fg(BORDER))
+      .title(" Sessions ")
+      .title_style(Style::default().fg(Color::White).bold()),
         );
     f.render_widget(table, chunks[2]);
 
     // Info bar — shows details for selected session based on tab
     if let Some(&idx) = app.filtered_indices.get(app.cursor) {
         if let Some(s) = app.store.sessions.get(idx) {
-            let tab_labels = ["MCPs", "Path", "Models"];
-            let mut tab_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];
-            for (i, label) in tab_labels.iter().enumerate() {
-                if i == app.list_info_tab {
-                    tab_spans.push(Span::styled(format!("[{}]", label), Style::default().fg(Color::White).bold()));
-                } else {
-                    tab_spans.push(Span::styled(format!(" {} ", label), Style::default().fg(DIM)));
-                }
-            }
-            tab_spans.push(Span::styled("  ", Style::default()));
+  let tab_labels = ["MCPs", "Path", "Models"];
+  let mut tab_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];
+  for (i, label) in tab_labels.iter().enumerate() {
+      if i == app.list_info_tab {
+tab_spans.push(Span::styled(format!("[{}]", label), Style::default().fg(Color::White).bold()));
+      } else {
+tab_spans.push(Span::styled(format!(" {} ", label), Style::default().fg(DIM)));
+      }
+  }
+  tab_spans.push(Span::styled("  ", Style::default()));
 
-            let detail_text = match app.list_info_tab {
-                0 => {
-                    if s.mcp_tools.is_empty() {
-                        "No MCPs used".to_string()
-                    } else {
-                        s.mcp_tools.iter()
-                            .map(|(name, count)| format!("{} ×{}", name, count))
-                            .collect::<Vec<_>>()
-                            .join("  ")
-                    }
-                }
-                1 => s.cwd.clone(),
-                2 => {
-                    if s.models_timeline.is_empty() {
-                        short_model(&s.model)
-                    } else {
-                        s.models_timeline.iter()
-                            .map(|(_, m)| short_model(m))
-                            .collect::<Vec<_>>()
-                            .join(" → ")
-                    }
-                }
-                _ => String::new(),
-            };
+  let detail_text = match app.list_info_tab {
+      0 => {
+if s.mcp_tools.is_empty() {
+    "No MCPs used".to_string()
+} else {
+    s.mcp_tools.iter()
+        .map(|(name, count)| format!("{} ×{}", name, count))
+        .collect::<Vec<_>>()
+        .join("  ")
+}
+      }
+      1 => s.cwd.clone(),
+      2 => {
+if s.models_timeline.is_empty() {
+    short_model(&s.model)
+} else {
+    s.models_timeline.iter()
+        .map(|(_, m)| short_model(m))
+        .collect::<Vec<_>>()
+        .join(" → ")
+}
+      }
+      _ => String::new(),
+  };
 
-            // If it's an agent, show parent info
-            let parent_info = if let Some(pid) = &s.parent_session_id {
-                let parent_title = app.store.sessions.iter()
-                    .find(|ps| ps.id == *pid)
-                    .map(|ps| ps.title.clone())
-                    .unwrap_or_else(|| pid[..pid.len().min(12)].to_string());
-                format!("  ⤷ from: {}", parent_title)
-            } else {
-                String::new()
-            };
+  // If it's an agent, show parent info
+  let parent_info = if let Some(pid) = &s.parent_session_id {
+      let parent_title = app.store.sessions.iter()
+.find(|ps| ps.id == *pid)
+.map(|ps| ps.title.clone())
+.unwrap_or_else(|| pid[..pid.len().min(12)].to_string());
+      format!("  ⤷ from: {}", parent_title)
+  } else {
+      String::new()
+  };
 
-            tab_spans.push(Span::styled(detail_text, Style::default().fg(PREVIEW)));
-            if !parent_info.is_empty() {
-                tab_spans.push(Span::styled(parent_info, Style::default().fg(Color::Rgb(140, 120, 180))));
-            }
+  tab_spans.push(Span::styled(detail_text, Style::default().fg(PREVIEW)));
+  if !parent_info.is_empty() {
+      tab_spans.push(Span::styled(parent_info, Style::default().fg(Color::Rgb(140, 120, 180))));
+  }
 
-            f.render_widget(Paragraph::new(vec![
-                Line::from(tab_spans),
-            ]), chunks[3]);
+  f.render_widget(Paragraph::new(vec![
+      Line::from(tab_spans),
+  ]), chunks[3]);
         }
     }
 
@@ -559,22 +559,22 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
     if app.chat_fullscreen {
         // Fullscreen chat — just header + chat + footer
         let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1), // header
-                Constraint::Min(6),   // chat
-                Constraint::Length(1), // footer
-            ])
-            .split(area);
+  .direction(Direction::Vertical)
+  .constraints([
+      Constraint::Length(1), // header
+      Constraint::Min(6),   // chat
+      Constraint::Length(1), // footer
+  ])
+  .split(area);
 
         // Header
         let title_text = if is_live {
-            format!(" ● {} (live)", session.title)
+  format!(" ● {} (live)", session.title)
         } else {
-            format!(" {}", session.title)
+  format!(" {}", session.title)
         };
         f.render_widget(Paragraph::new(Line::from(
-            Span::styled(title_text, Style::default().bold().fg(if is_live { Color::Green } else { Color::White }))
+  Span::styled(title_text, Style::default().bold().fg(if is_live { Color::Green } else { Color::Yellow }))
         )), chunks[0]);
 
         // Chat + mascot
@@ -582,45 +582,45 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
 
         // Footer — changes based on search state
         let fs_footer = if app.chat_search_active {
-            Paragraph::new(Line::from(vec![
-                Span::styled(" /", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled(app.chat_search_query.to_string(), Style::default().fg(Color::White)),
-                Span::styled("█  ", Style::default().fg(Color::Rgb(255, 160, 40))),
-                Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled("confirm  ", Style::default().fg(LABEL)),
-                Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled("cancel", Style::default().fg(LABEL)),
-            ]))
+  Paragraph::new(Line::from(vec![
+      Span::styled(" /", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled(app.chat_search_query.to_string(), Style::default().fg(Color::White)),
+      Span::styled("█  ", Style::default().fg(Color::Rgb(255, 160, 40))),
+      Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled("confirm  ", Style::default().fg(LABEL)),
+      Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled("cancel", Style::default().fg(LABEL)),
+  ]))
         } else if !app.chat_search_query.is_empty() {
-            let match_info = if app.chat_search_matches.is_empty() {
-                "no matches".to_string()
-            } else {
-                format!("{}/{}", app.chat_search_current + 1, app.chat_search_matches.len())
-            };
-            Paragraph::new(Line::from(vec![
-                Span::styled(" n", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled("ext  ", Style::default().fg(LABEL)),
-                Span::styled("N", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled("prev  ", Style::default().fg(LABEL)),
-                Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled("search  ", Style::default().fg(LABEL)),
-                Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled("clear  ", Style::default().fg(LABEL)),
-                Span::styled(format!("({})", match_info), Style::default().fg(Color::Rgb(255, 160, 40))),
-            ]))
+  let match_info = if app.chat_search_matches.is_empty() {
+      "no matches".to_string()
+  } else {
+      format!("{}/{}", app.chat_search_current + 1, app.chat_search_matches.len())
+  };
+  Paragraph::new(Line::from(vec![
+      Span::styled(" n", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled("ext  ", Style::default().fg(LABEL)),
+      Span::styled("N", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled("prev  ", Style::default().fg(LABEL)),
+      Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled("search  ", Style::default().fg(LABEL)),
+      Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled("clear  ", Style::default().fg(LABEL)),
+      Span::styled(format!("({})", match_info), Style::default().fg(Color::Rgb(255, 160, 40))),
+  ]))
         } else {
-            Paragraph::new(Line::from(vec![
-                Span::styled(" f ", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled("exit fullscreen  ", Style::default().fg(LABEL)),
-                Span::styled("↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled("scroll  ", Style::default().fg(LABEL)),
-                Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled("search  ", Style::default().fg(LABEL)),
-                Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled("expand/collapse  ", Style::default().fg(LABEL)),
-                Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
-                Span::styled("back", Style::default().fg(LABEL)),
-            ]))
+  Paragraph::new(Line::from(vec![
+      Span::styled(" f ", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled("exit fullscreen  ", Style::default().fg(LABEL)),
+      Span::styled("↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled("scroll  ", Style::default().fg(LABEL)),
+      Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled("search  ", Style::default().fg(LABEL)),
+      Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled("expand/collapse  ", Style::default().fg(LABEL)),
+      Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+      Span::styled("back", Style::default().fg(LABEL)),
+  ]))
         };
         f.render_widget(fs_footer, chunks[2]);
         return;
@@ -634,11 +634,11 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2),      // header (compact)
-            Constraint::Length(info_h), // session info + token usage
-            Constraint::Length(ctx_h),  // context breakdown
-            Constraint::Min(6),        // claude animation + chat
-            Constraint::Length(1),     // footer
+  Constraint::Length(2),      // header (compact)
+  Constraint::Length(info_h), // session info + token usage
+  Constraint::Length(ctx_h),  // context breakdown
+  Constraint::Min(6),        // claude animation + chat
+  Constraint::Length(1),     // footer
         ])
         .split(area);
 
@@ -649,7 +649,7 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
         format!("  {}", session.title)
     };
     let header = Paragraph::new(Line::from(vec![
-        Span::styled(title_text, Style::default().bold().fg(if is_live { Color::Green } else { Color::White })),
+        Span::styled(title_text, Style::default().bold().fg(if is_live { Color::Green } else { Color::Yellow })),
     ]))
     .block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(LABEL)));
     f.render_widget(header, chunks[0]);
@@ -682,63 +682,74 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
     let ctx_window_str = fmt_tokens(ctx_window);
     let mut info_lines = vec![
         Line::from(vec![
-            Span::styled("Model     ", Style::default().fg(LABEL)),
-            Span::styled(&model, Style::default().fg(model_color).bold()),
-            Span::styled(format!("  ({})", ctx_window_str), Style::default().fg(LABEL)),
+  Span::styled("Model     ", Style::default().fg(LABEL)),
+  Span::styled(&model, Style::default().fg(model_color).bold()),
+  Span::styled(format!("  ({})", ctx_window_str), Style::default().fg(LABEL)),
         ]),
         Line::from(vec![
-            Span::styled("Effort    ", Style::default().fg(LABEL)),
-            Span::styled(&effort, Style::default().fg(Color::Yellow).bold()),
+  Span::styled("Effort    ", Style::default().fg(LABEL)),
+  Span::styled(&effort, Style::default().fg(Color::Yellow).bold()),
         ]),
         Line::from(vec![
-            Span::styled("Started   ", Style::default().fg(LABEL)),
-            Span::styled(start_str, Style::default().fg(Color::White)),
+  Span::styled("Started   ", Style::default().fg(LABEL)),
+  Span::styled(start_str, Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
-            Span::styled("Duration  ", Style::default().fg(LABEL)),
-            Span::styled(&dur, Style::default().fg(Color::White)),
+  Span::styled("Duration  ", Style::default().fg(LABEL)),
+  Span::styled(&dur, Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
-            Span::styled("Turns     ", Style::default().fg(LABEL)),
-            Span::styled(format!("{} user / {} ai", session.user_turns, session.turns), Style::default().fg(Color::White)),
+  Span::styled("Turns     ", Style::default().fg(LABEL)),
+  Span::styled(format!("{} user / {} ai", session.user_turns, session.turns), Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
-            Span::styled("Tools     ", Style::default().fg(LABEL)),
-            Span::styled(session.tool_calls.to_string(), Style::default().fg(Color::White)),
-            if session.web_searches > 0 {
-                Span::styled(format!("  web: {}", session.web_searches), Style::default().fg(Color::Cyan))
-            } else {
-                Span::raw("")
-            },
+  Span::styled("Tools     ", Style::default().fg(LABEL)),
+  Span::styled(session.tool_calls.to_string(), Style::default().fg(Color::White)),
+  if session.web_searches > 0 {
+      Span::styled(format!("  web: {}", session.web_searches), Style::default().fg(Color::Cyan))
+  } else {
+      Span::raw("")
+  },
         ]),
     ];
+    if !session.git_branch.is_empty() {
+        let branch_display = if let Some(name) = session.git_branch.strip_prefix("worktree-") {
+  format!("⊔ {}", name)
+        } else {
+  session.git_branch.clone()
+        };
+        info_lines.push(Line::from(vec![
+  Span::styled("Branch    ", Style::default().fg(LABEL)),
+  Span::styled(branch_display, Style::default().fg(Color::Cyan)),
+        ]));
+    }
 
     if session.models_timeline.len() > 1 {
         let switches: String = session.models_timeline.iter()
-            .map(|(_, m)| short_model(m))
-            .collect::<Vec<_>>()
-            .join(" → ");
+  .map(|(_, m)| short_model(m))
+  .collect::<Vec<_>>()
+  .join(" → ");
         info_lines.push(Line::from(vec![
-            Span::styled("Switches  ", Style::default().fg(LABEL)),
-            Span::styled(switches, Style::default().fg(USER_TEXT)),
+  Span::styled("Switches  ", Style::default().fg(LABEL)),
+  Span::styled(switches, Style::default().fg(USER_TEXT)),
         ]));
     }
 
     if !session.mcp_tools.is_empty() {
         let mcp_str: String = session.mcp_tools.iter()
-            .map(|(name, count)| format!("{} ×{}", name, count))
-            .collect::<Vec<_>>()
-            .join("  ");
+  .map(|(name, count)| format!("{} ×{}", name, count))
+  .collect::<Vec<_>>()
+  .join("  ");
         info_lines.push(Line::from(vec![
-            Span::styled("MCPs      ", Style::default().fg(LABEL)),
-            Span::styled(mcp_str, Style::default().fg(Color::Blue)),
+  Span::styled("MCPs      ", Style::default().fg(LABEL)),
+  Span::styled(mcp_str, Style::default().fg(Color::Blue)),
         ]));
     }
 
     let info_panel = Paragraph::new(info_lines).block(
         Block::default().borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(80, 110, 170)))
-            .title(" Session ").title_style(Style::default().fg(Color::White).bold()),
+  .border_style(Style::default().fg(Color::Rgb(80, 110, 170)))
+  .title(" Session ").title_style(Style::default().fg(Color::White).bold()),
     );
     f.render_widget(info_panel, row1[0]);
 
@@ -746,36 +757,36 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
     let total_tokens = session.total_input + session.total_output;
     let usage_lines = vec![
         Line::from(vec![
-            Span::styled("Output       ", Style::default().fg(LABEL)),
-            Span::styled(fmt_tokens(session.total_output), Style::default().fg(Color::Green).bold()),
+  Span::styled("Output       ", Style::default().fg(LABEL)),
+  Span::styled(fmt_tokens(session.total_output), Style::default().fg(Color::Green).bold()),
         ]),
         Line::from(vec![
-            Span::styled("Input        ", Style::default().fg(LABEL)),
-            Span::styled(fmt_tokens(session.total_input), Style::default().fg(Color::White)),
+  Span::styled("Input        ", Style::default().fg(LABEL)),
+  Span::styled(fmt_tokens(session.total_input), Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
-            Span::styled("Cache Read   ", Style::default().fg(LABEL)),
-            Span::styled(fmt_tokens(session.total_cache_read), Style::default().fg(Color::Cyan)),
+  Span::styled("Cache Read   ", Style::default().fg(LABEL)),
+  Span::styled(fmt_tokens(session.total_cache_read), Style::default().fg(Color::Cyan)),
         ]),
         Line::from(vec![
-            Span::styled("Cache Write  ", Style::default().fg(LABEL)),
-            Span::styled(fmt_tokens(session.total_cache_write), Style::default().fg(USER_TEXT)),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Total        ", Style::default().fg(LABEL)),
-            Span::styled(fmt_tokens(total_tokens), Style::default().fg(Color::Yellow).bold()),
+  Span::styled("Cache Write  ", Style::default().fg(LABEL)),
+  Span::styled(fmt_tokens(session.total_cache_write), Style::default().fg(USER_TEXT)),
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("Last turn    ", Style::default().fg(LABEL)),
-            Span::styled(format!("read {} + wrote {}", fmt_tokens(session.last_context_read), fmt_tokens(session.last_cache_write)), Style::default().fg(USER_TEXT)),
+  Span::styled("Total        ", Style::default().fg(LABEL)),
+  Span::styled(fmt_tokens(total_tokens), Style::default().fg(Color::Yellow).bold()),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+  Span::styled("Last turn    ", Style::default().fg(LABEL)),
+  Span::styled(format!("read {} + wrote {}", fmt_tokens(session.last_context_read), fmt_tokens(session.last_cache_write)), Style::default().fg(USER_TEXT)),
         ]),
     ];
     let usage_panel = Paragraph::new(usage_lines).block(
         Block::default().borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(80, 150, 80)))
-            .title(" Token Usage ").title_style(Style::default().fg(Color::White).bold()),
+  .border_style(Style::default().fg(Color::Rgb(80, 150, 80)))
+  .title(" Token Usage ").title_style(Style::default().fg(Color::White).bold()),
     );
     f.render_widget(usage_panel, row1[1]);
 
@@ -814,70 +825,70 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
     // Left: context bar and summary
     let ctx_left = vec![
         Line::from(vec![
-            Span::styled("Context Window  ", Style::default().fg(LABEL)),
-            Span::styled(format!("{} / {}", fmt_tokens(ctx_total), fmt_tokens(ctx_window)), Style::default().fg(Color::White).bold()),
-            Span::styled(format!("  ({:.1}%)", ctx_pct), Style::default().fg(bar_color).bold()),
+  Span::styled("Context Window  ", Style::default().fg(LABEL)),
+  Span::styled(format!("{} / {}", fmt_tokens(ctx_total), fmt_tokens(ctx_window)), Style::default().fg(Color::White).bold()),
+  Span::styled(format!("  ({:.1}%)", ctx_pct), Style::default().fg(bar_color).bold()),
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("█".repeat(filled), Style::default().fg(bar_color)),
-            Span::styled("░".repeat(empty), Style::default().fg(DIM)),
+  Span::styled("█".repeat(filled), Style::default().fg(bar_color)),
+  Span::styled("░".repeat(empty), Style::default().fg(DIM)),
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled(format!("{} remaining", fmt_tokens(ctx_window.saturating_sub(ctx_total))), Style::default().fg(USER_TEXT)),
+  Span::styled(format!("{} remaining", fmt_tokens(ctx_window.saturating_sub(ctx_total))), Style::default().fg(USER_TEXT)),
         ]),
     ];
 
     let ctx_left_panel = Paragraph::new(ctx_left).block(
         Block::default().borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(160, 160, 70)))
-            .title(" Context Usage ").title_style(Style::default().fg(Color::White).bold()),
+  .border_style(Style::default().fg(Color::Rgb(160, 160, 70)))
+  .title(" Context Usage ").title_style(Style::default().fg(Color::White).bold()),
     );
     f.render_widget(ctx_left_panel, ctx_row[0]);
 
     // Right: category breakdown (like /context)
     let ctx_right = vec![
         Line::from(vec![
-            Span::styled("System/Plugins/Skills  ", Style::default().fg(LABEL)),
-            Span::styled(format!("~{}", fmt_tokens(cb.system_plugins_skills)), Style::default().fg(Color::Magenta)),
-            Span::styled(format!("  {}", pct(cb.system_plugins_skills)), Style::default().fg(LABEL)),
+  Span::styled("System/Plugins/Skills  ", Style::default().fg(LABEL)),
+  Span::styled(format!("~{}", fmt_tokens(cb.system_plugins_skills)), Style::default().fg(Color::Magenta)),
+  Span::styled(format!("  {}", pct(cb.system_plugins_skills)), Style::default().fg(LABEL)),
         ]),
         Line::from(vec![
-            Span::styled("User Messages          ", Style::default().fg(LABEL)),
-            Span::styled(format!("~{}", fmt_tokens(cb.user_messages)), Style::default().fg(Color::Cyan)),
-            Span::styled(format!("  {}", pct(cb.user_messages)), Style::default().fg(LABEL)),
+  Span::styled("User Messages", Style::default().fg(LABEL)),
+  Span::styled(format!("~{}", fmt_tokens(cb.user_messages)), Style::default().fg(Color::Cyan)),
+  Span::styled(format!("  {}", pct(cb.user_messages)), Style::default().fg(LABEL)),
         ]),
         Line::from(vec![
-            Span::styled("Tool Results           ", Style::default().fg(LABEL)),
-            Span::styled(format!("~{}", fmt_tokens(cb.tool_results)), Style::default().fg(Color::Yellow)),
-            Span::styled(format!("  {}", pct(cb.tool_results)), Style::default().fg(LABEL)),
+  Span::styled("Tool Results ", Style::default().fg(LABEL)),
+  Span::styled(format!("~{}", fmt_tokens(cb.tool_results)), Style::default().fg(Color::Yellow)),
+  Span::styled(format!("  {}", pct(cb.tool_results)), Style::default().fg(LABEL)),
         ]),
         Line::from(vec![
-            Span::styled("Assistant Output       ", Style::default().fg(LABEL)),
-            Span::styled(format!("~{}", fmt_tokens(cb.assistant_output)), Style::default().fg(Color::Green)),
-            Span::styled(format!("  {}", pct(cb.assistant_output)), Style::default().fg(LABEL)),
+  Span::styled("Assistant Output       ", Style::default().fg(LABEL)),
+  Span::styled(format!("~{}", fmt_tokens(cb.assistant_output)), Style::default().fg(Color::Green)),
+  Span::styled(format!("  {}", pct(cb.assistant_output)), Style::default().fg(LABEL)),
         ]),
         if cb.images > 0 {
-            Line::from(vec![
-                Span::styled("Images                 ", Style::default().fg(LABEL)),
-                Span::styled(format!("~{}", fmt_tokens(cb.images)), Style::default().fg(Color::Blue)),
-                Span::styled(format!("  {}", pct(cb.images)), Style::default().fg(LABEL)),
-            ])
+  Line::from(vec![
+      Span::styled("Images       ", Style::default().fg(LABEL)),
+      Span::styled(format!("~{}", fmt_tokens(cb.images)), Style::default().fg(Color::Blue)),
+      Span::styled(format!("  {}", pct(cb.images)), Style::default().fg(LABEL)),
+  ])
         } else {
-            Line::from("")
+  Line::from("")
         },
         Line::from(""),
         Line::from(vec![
-            Span::styled("Estimated Total        ", Style::default().fg(LABEL)),
-            Span::styled(format!("~{}", fmt_tokens(cb_total)), Style::default().fg(Color::White).bold()),
+  Span::styled("Estimated Total        ", Style::default().fg(LABEL)),
+  Span::styled(format!("~{}", fmt_tokens(cb_total)), Style::default().fg(Color::White).bold()),
         ]),
     ];
 
     let ctx_right_panel = Paragraph::new(ctx_right).block(
         Block::default().borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(160, 160, 70)))
-            .title(" Breakdown (estimated) ").title_style(Style::default().fg(Color::White).bold()),
+  .border_style(Style::default().fg(Color::Rgb(160, 160, 70)))
+  .title(" Breakdown (estimated) ").title_style(Style::default().fg(Color::White).bold()),
     );
     f.render_widget(ctx_right_panel, ctx_row[1]);
 
@@ -887,45 +898,45 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
     // Footer — changes based on search state
     let footer = if app.chat_search_active {
         Paragraph::new(Line::from(vec![
-            Span::styled(" /", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled(app.chat_search_query.to_string(), Style::default().fg(Color::White)),
-            Span::styled("█  ", Style::default().fg(Color::Rgb(255, 160, 40))),
-            Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("confirm  ", Style::default().fg(LABEL)),
-            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("cancel", Style::default().fg(LABEL)),
+  Span::styled(" /", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled(app.chat_search_query.to_string(), Style::default().fg(Color::White)),
+  Span::styled("█  ", Style::default().fg(Color::Rgb(255, 160, 40))),
+  Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("confirm  ", Style::default().fg(LABEL)),
+  Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("cancel", Style::default().fg(LABEL)),
         ]))
     } else if !app.chat_search_query.is_empty() {
         let match_info = if app.chat_search_matches.is_empty() {
-            "no matches".to_string()
+  "no matches".to_string()
         } else {
-            format!("{}/{}", app.chat_search_current + 1, app.chat_search_matches.len())
+  format!("{}/{}", app.chat_search_current + 1, app.chat_search_matches.len())
         };
         Paragraph::new(Line::from(vec![
-            Span::styled(" n", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("ext  ", Style::default().fg(LABEL)),
-            Span::styled("N", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("prev  ", Style::default().fg(LABEL)),
-            Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("search  ", Style::default().fg(LABEL)),
-            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("clear  ", Style::default().fg(LABEL)),
-            Span::styled(format!("({})", match_info), Style::default().fg(Color::Rgb(255, 160, 40))),
+  Span::styled(" n", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("ext  ", Style::default().fg(LABEL)),
+  Span::styled("N", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("prev  ", Style::default().fg(LABEL)),
+  Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("search  ", Style::default().fg(LABEL)),
+  Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("clear  ", Style::default().fg(LABEL)),
+  Span::styled(format!("({})", match_info), Style::default().fg(Color::Rgb(255, 160, 40))),
         ]))
     } else {
         Paragraph::new(Line::from(vec![
-            Span::styled(" ↑↓", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("scroll ", Style::default().fg(LABEL)),
-            Span::styled("f", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("ullscreen ", Style::default().fg(LABEL)),
-            Span::styled("c", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("laude ", Style::default().fg(LABEL)),
-            Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("search ", Style::default().fg(LABEL)),
-            Span::styled("←→", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("nav  ", Style::default().fg(LABEL)),
-            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("back", Style::default().fg(LABEL)),
+  Span::styled(" ↑↓", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("scroll ", Style::default().fg(LABEL)),
+  Span::styled("f", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("ullscreen ", Style::default().fg(LABEL)),
+  Span::styled("c", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("laude ", Style::default().fg(LABEL)),
+  Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("search ", Style::default().fg(LABEL)),
+  Span::styled("←→", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("nav  ", Style::default().fg(LABEL)),
+  Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+  Span::styled("back", Style::default().fg(LABEL)),
         ]))
     };
     f.render_widget(footer, chunks[4]);
@@ -942,7 +953,7 @@ fn highlight_search_matches(lines: &mut Vec<Line<'_>>, query: &str, current_matc
     for (line_idx, line) in lines.iter_mut().enumerate() {
         // Check if any span in this line contains the query
         let has_match = line.spans.iter().any(|s| {
-            s.content.to_lowercase().contains(&query_lower)
+  s.content.to_lowercase().contains(&query_lower)
         });
         if !has_match { continue; }
 
@@ -955,31 +966,31 @@ fn highlight_search_matches(lines: &mut Vec<Line<'_>>, query: &str, current_matc
         let mut new_spans: Vec<Span<'_>> = Vec::new();
 
         for span in old_spans {
-            let text = span.content.to_string();
-            let text_lower = text.to_lowercase();
-            let style = span.style;
+  let text = span.content.to_string();
+  let text_lower = text.to_lowercase();
+  let style = span.style;
 
-            if !text_lower.contains(&query_lower) {
-                new_spans.push(Span::styled(text, style));
-                continue;
-            }
+  if !text_lower.contains(&query_lower) {
+      new_spans.push(Span::styled(text, style));
+      continue;
+  }
 
-            let mut pos = 0;
-            let qlen = query_lower.len();
+  let mut pos = 0;
+  let qlen = query_lower.len();
 
-            while pos < text.len() {
-                if let Some(found) = text_lower[pos..].find(&query_lower) {
-                    let abs = pos + found;
-                    if abs > pos {
-                        new_spans.push(Span::styled(text[pos..abs].to_string(), style));
-                    }
-                    new_spans.push(Span::styled(text[abs..abs + qlen].to_string(), hl));
-                    pos = abs + qlen;
-                } else {
-                    new_spans.push(Span::styled(text[pos..].to_string(), style));
-                    break;
-                }
-            }
+  while pos < text.len() {
+      if let Some(found) = text_lower[pos..].find(&query_lower) {
+let abs = pos + found;
+if abs > pos {
+    new_spans.push(Span::styled(text[pos..abs].to_string(), style));
+}
+new_spans.push(Span::styled(text[abs..abs + qlen].to_string(), hl));
+pos = abs + qlen;
+      } else {
+new_spans.push(Span::styled(text[pos..].to_string(), style));
+break;
+      }
+  }
         }
 
         *line = Line::from(new_spans);
@@ -996,35 +1007,35 @@ fn parse_inline_md<'a>(text: &'a str, base_style: Style) -> Vec<Span<'a>> {
     while !remaining.is_empty() {
         // Look for **bold** or `code`
         if let Some(pos) = remaining.find("**") {
-            if pos > 0 {
-                spans.push(Span::styled(&remaining[..pos], base_style));
-            }
-            let after = &remaining[pos + 2..];
-            if let Some(end) = after.find("**") {
-                spans.push(Span::styled(&after[..end], base_style.bold()));
-                remaining = &after[end + 2..];
-            } else {
-                spans.push(Span::styled(&remaining[pos..], base_style));
-                break;
-            }
+  if pos > 0 {
+      spans.push(Span::styled(&remaining[..pos], base_style));
+  }
+  let after = &remaining[pos + 2..];
+  if let Some(end) = after.find("**") {
+      spans.push(Span::styled(&after[..end], base_style.bold()));
+      remaining = &after[end + 2..];
+  } else {
+      spans.push(Span::styled(&remaining[pos..], base_style));
+      break;
+  }
         } else if let Some(pos) = remaining.find('`') {
-            if pos > 0 {
-                spans.push(Span::styled(&remaining[..pos], base_style));
-            }
-            let after = &remaining[pos + 1..];
-            if let Some(end) = after.find('`') {
-                spans.push(Span::styled(
-                    &after[..end],
-                    Style::default().fg(Color::Rgb(180, 140, 200)),
-                ));
-                remaining = &after[end + 1..];
-            } else {
-                spans.push(Span::styled(&remaining[pos..], base_style));
-                break;
-            }
+  if pos > 0 {
+      spans.push(Span::styled(&remaining[..pos], base_style));
+  }
+  let after = &remaining[pos + 1..];
+  if let Some(end) = after.find('`') {
+      spans.push(Span::styled(
+&after[..end],
+Style::default().fg(Color::Rgb(180, 140, 200)),
+      ));
+      remaining = &after[end + 1..];
+  } else {
+      spans.push(Span::styled(&remaining[pos..], base_style));
+      break;
+  }
         } else {
-            spans.push(Span::styled(remaining, base_style));
-            break;
+  spans.push(Span::styled(remaining, base_style));
+  break;
         }
     }
     spans
@@ -1037,8 +1048,8 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
     let parts = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(4),
-            Constraint::Length(char_h),
+  Constraint::Min(4),
+  Constraint::Length(char_h),
         ])
         .split(area);
 
@@ -1048,7 +1059,7 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
     // ── Chat window: preserve formatting, render markdown-like content ──
     app.clickable_lines.borrow_mut().clear();
     let chat_w = chat_area.width.saturating_sub(2) as usize; // inner width minus borders
-    let indent_w = 10usize; // "     me ▸ " or " claude ▸ " prefix width
+    let indent_w = 11usize; // pill badge + " ▸ " prefix width
     let text_w = chat_w.saturating_sub(indent_w); // available width for text content
     let mut lines: Vec<Line> = Vec::new();
     let code_color = Color::Rgb(180, 140, 200);  // purple for code
@@ -1068,183 +1079,198 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
     for (msg_idx, m) in msgs.iter().enumerate() {
         // Compression markers
         if session.compressions.contains(&msg_idx) {
-            lines.push(Line::from(vec![
-                Span::styled("  ⚡ ", Style::default().fg(compress_color).bold()),
-                Span::styled("── Context compressed ──", Style::default().fg(compress_color)),
-            ]));
-            lines.push(Line::from(""));
+  lines.push(Line::from(vec![
+      Span::styled("  ⚡ ", Style::default().fg(compress_color).bold()),
+      Span::styled("── Context compressed ──", Style::default().fg(compress_color)),
+  ]));
+  lines.push(Line::from(""));
         }
 
         match &m.block {
-            ContentBlock::Thinking => {
-                // Skip thinking blocks entirely
-            }
-            ContentBlock::ToolResult(result) => {
-                // Show tool result indented under previous tool_use
-                for line in result.lines().take(5) {
-                    let trimmed = line.trim();
-                    if !trimmed.is_empty() {
-                        lines.push(Line::from(vec![
-                            Span::styled("            └ ", Style::default().fg(tool_dim)),
-                            Span::styled(trimmed.to_string(), Style::default().fg(tool_dim)),
-                        ]));
-                    }
-                }
-            }
-            ContentBlock::ToolUse { name, summary, old_str, new_str } => {
-                // Green dot + tool name like Claude Code
-                let display_name = if name == "Edit" || name == "Write" {
-                    format!("Update({})", summary)
-                } else {
-                    format!("{}({})", name, summary)
-                };
+  ContentBlock::Thinking => {
+      // Skip thinking blocks entirely
+  }
+  ContentBlock::ToolResult(result) => {
+      // Show tool result indented under previous tool_use
+      for line in result.lines().take(5) {
+let trimmed = line.trim();
+if !trimmed.is_empty() {
+    lines.push(Line::from(vec![
+        Span::styled("  └ ", Style::default().fg(tool_dim)),
+        Span::styled(trimmed.to_string(), Style::default().fg(tool_dim)),
+    ]));
+}
+      }
+  }
+  ContentBlock::ToolUse { name, summary, old_str, new_str } => {
+      // Green dot + tool name like Claude Code
+      let display_name = if name == "Edit" || name == "Write" {
+format!("Update({})", summary)
+      } else {
+format!("{}({})", name, summary)
+      };
 
-                let has_diff = !old_str.is_empty() || !new_str.is_empty();
-                let expanded = has_diff && app.expanded_msgs.contains(&msg_idx);
+      let has_diff = !old_str.is_empty() || !new_str.is_empty();
+      let expanded = has_diff && app.expanded_msgs.contains(&msg_idx);
 
-                // Record this line as clickable for expand/collapse
-                if has_diff {
-                    app.clickable_lines.borrow_mut().push((lines.len(), msg_idx));
-                }
+      // Record this line as clickable for expand/collapse
+      if has_diff {
+app.clickable_lines.borrow_mut().push((lines.len(), msg_idx));
+      }
 
-                lines.push(Line::from(vec![
-                    Span::styled("          ", Style::default()),
-                    Span::styled("● ", Style::default().fg(tool_color).bold()),
-                    Span::styled(display_name, Style::default().fg(Color::White)),
-                    if has_diff {
-                        let arrow_color = Color::Rgb(255, 200, 60); // bright yellow arrow
-                        let marker = if expanded { " ▼" } else { " ▶" };
-                        Span::styled(marker, Style::default().fg(arrow_color).bold())
-                    } else {
-                        Span::raw("")
-                    },
-                ]));
+      lines.push(Line::from(vec![
+Span::styled("           ", Style::default()),
+Span::styled("● ", Style::default().fg(tool_color).bold()),
+Span::styled(display_name, Style::default().fg(Color::White)),
+if has_diff {
+    let arrow_color = Color::Rgb(255, 200, 60); // bright yellow arrow
+    let marker = if expanded { " ▼" } else { " ▶" };
+    Span::styled(marker, Style::default().fg(arrow_color).bold())
+} else {
+    Span::raw("")
+},
+      ]));
 
-                // Show diff if expanded — with line numbers
-                if expanded {
-                    let del_count = old_str.lines().count();
-                    let add_count = new_str.lines().count();
-                    let line_num_w = 4; // width for line numbers
-                    lines.push(Line::from(vec![
-                        Span::styled("            └ ", Style::default().fg(tool_dim)),
-                        Span::styled(format!("Added {} lines, removed {} lines", add_count, del_count), Style::default().fg(tool_dim)),
-                    ]));
-                    let mut line_num = 1usize;
-                    for line in old_str.lines() {
-                        lines.push(Line::from(vec![
-                            Span::styled(format!("{:>4} ", line_num), Style::default().fg(DIM)),
-                            Span::styled("- ", Style::default().fg(diff_del).bold()),
-                            Span::styled(line.to_string(), Style::default().fg(diff_del)),
-                        ]));
-                        line_num += 1;
-                    }
-                    line_num = 1;
-                    for line in new_str.lines() {
-                        lines.push(Line::from(vec![
-                            Span::styled(format!("{:>4} ", line_num), Style::default().fg(DIM)),
-                            Span::styled("+ ", Style::default().fg(diff_add).bold()),
-                            Span::styled(line.to_string(), Style::default().fg(diff_add)),
-                        ]));
-                        line_num += 1;
-                    }
-                }
-            }
-            ContentBlock::Text(text) => {
-                let text = text.trim();
-                if text.is_empty() { continue; }
+      // Show diff if expanded — with line numbers
+      if expanded {
+let del_count = old_str.lines().count();
+let add_count = new_str.lines().count();
+let line_num_w = 4; // width for line numbers
+lines.push(Line::from(vec![
+    Span::styled("  └ ", Style::default().fg(tool_dim)),
+    Span::styled(format!("Added {} lines, removed {} lines", add_count, del_count), Style::default().fg(tool_dim)),
+]));
+let mut line_num = 1usize;
+for line in old_str.lines() {
+    lines.push(Line::from(vec![
+        Span::styled(format!("{:>4} ", line_num), Style::default().fg(DIM)),
+        Span::styled("- ", Style::default().fg(diff_del).bold()),
+        Span::styled(line.to_string(), Style::default().fg(diff_del)),
+    ]));
+    line_num += 1;
+}
+line_num = 1;
+for line in new_str.lines() {
+    lines.push(Line::from(vec![
+        Span::styled(format!("{:>4} ", line_num), Style::default().fg(DIM)),
+        Span::styled("+ ", Style::default().fg(diff_add).bold()),
+        Span::styled(line.to_string(), Style::default().fg(diff_add)),
+    ]));
+    line_num += 1;
+}
+      }
+  }
+  ContentBlock::Text(text) => {
+      let text = text.trim();
+      if text.is_empty() { continue; }
 
-                // Skip system noise
-                if text.contains("<system-reminder>") || text.contains("<command-name>")
-                    || text.starts_with("Plan mode is active")
-                    || text.contains("<local-command")
-                    || text.contains("Caveat: The messages below")
-                {
-                    continue;
-                }
+      // Skip system noise
+      if text.contains("<system-reminder>") || text.contains("<command-name>")
+|| text.starts_with("Plan mode is active")
+|| text.contains("<local-command")
+|| text.contains("Caveat: The messages below")
+      {
+continue;
+      }
 
-                let (prefix, prefix_color) = if m.role == "user" {
-                    ("     me", Color::Rgb(100, 180, 220))
-                } else {
-                    (" claude", Color::Green)
-                };
+      let badge_spans: Vec<Span> = if m.role == "user" {
+let c = Color::Rgb(60, 120, 190);
+vec![
+    Span::raw("  "),
+    Span::styled("\u{E0B6}", Style::default().fg(c)),
+    Span::styled(" me ", Style::default().fg(Color::White).bg(c).bold()),
+    Span::styled("\u{E0B4}", Style::default().fg(c)),
+]
+      } else {
+let c = Color::Rgb(40, 140, 70);
+vec![
+    Span::styled("\u{E0B6}", Style::default().fg(c)),
+    Span::styled("claude", Style::default().fg(Color::White).bg(c).bold()),
+    Span::styled("\u{E0B4}", Style::default().fg(c)),
+]
+      };
 
-                let mut first_output_line = true;
-                let mut in_code_block = false;
+      let mut first_output_line = true;
+      let mut in_code_block = false;
 
-                for (li, text_line) in text.split('\n').enumerate() {
-                    let trimmed = text_line.trim();
+      for (li, text_line) in text.split('\n').enumerate() {
+let trimmed = text_line.trim();
 
-                    if trimmed.starts_with("```") {
-                        in_code_block = !in_code_block;
-                        let label = if in_code_block {
-                            trimmed.strip_prefix("```").unwrap_or("──────")
-                        } else { "──────" };
-                        let indent = if first_output_line {
-                            first_output_line = false;
-                            vec![Span::styled(prefix, Style::default().fg(prefix_color).bold()), Span::styled(" ▸ ", Style::default().fg(DIM))]
-                        } else {
-                            vec![Span::styled("          ", Style::default().fg(DIM))]
-                        };
-                        let mut spans = indent;
-                        spans.push(Span::styled(label.to_string(), Style::default().fg(code_color).italic()));
-                        lines.push(Line::from(spans));
-                        continue;
-                    }
+if trimmed.starts_with("```") {
+    in_code_block = !in_code_block;
+    let label = if in_code_block {
+        trimmed.strip_prefix("```").unwrap_or("──────")
+    } else { "──────" };
+    let indent = if first_output_line {
+        first_output_line = false;
+        let mut v = badge_spans.clone();
+        v.push(Span::styled(" ▸ ", Style::default().fg(DIM)));
+        v
+    } else {
+        vec![Span::styled("           ", Style::default().fg(DIM))]
+    };
+    let mut spans = indent;
+    spans.push(Span::styled(label.to_string(), Style::default().fg(code_color).italic()));
+    lines.push(Line::from(spans));
+    continue;
+}
 
-                    let pfx = if first_output_line {
-                        first_output_line = false;
-                        vec![Span::styled(prefix, Style::default().fg(prefix_color).bold()), Span::styled(" ▸ ", Style::default().fg(DIM))]
-                    } else {
-                        vec![Span::styled("          ", Style::default().fg(DIM))]
-                    };
+let pfx = if first_output_line {
+    first_output_line = false;
+    let mut v = badge_spans.clone();
+    v.push(Span::styled(" ▸ ", Style::default().fg(DIM)));
+    v
+} else {
+    vec![Span::styled("           ", Style::default().fg(DIM))]
+};
 
-                    if in_code_block {
-                        let mut s = pfx;
-                        s.push(Span::styled(format!("  {}", text_line), Style::default().fg(code_color)));
-                        lines.push(Line::from(s));
-                    } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-                        let mut s = pfx;
-                        s.push(Span::styled("• ", Style::default().fg(bullet_color)));
-                        s.extend(parse_inline_md(&trimmed[2..], Style::default().fg(PREVIEW)));
-                        lines.push(Line::from(s));
-                    } else if trimmed.starts_with("# ") || trimmed.starts_with("## ") {
-                        let mut s = pfx;
-                        s.extend(parse_inline_md(trimmed, Style::default().fg(heading_color).bold()));
-                        lines.push(Line::from(s));
-                    } else if trimmed.len() > 2 && trimmed.as_bytes()[0].is_ascii_digit() && trimmed.contains(". ") {
-                        if let Some(dot_pos) = trimmed.find(". ") {
-                            let mut s = pfx;
-                            s.push(Span::styled(trimmed[..dot_pos + 2].to_string(), Style::default().fg(bullet_color)));
-                            s.extend(parse_inline_md(&trimmed[dot_pos + 2..], Style::default().fg(PREVIEW)));
-                            lines.push(Line::from(s));
-                        }
-                    } else if text_line.len() > text_w && text_w > 0 {
-                        // Long line — manual wrap with hanging indent
-                        let chars: Vec<char> = text_line.chars().collect();
-                        let mut pos = 0;
-                        let mut is_first_chunk = true;
-                        while pos < chars.len() {
-                            let end = (pos + text_w).min(chars.len());
-                            let chunk: String = chars[pos..end].iter().collect();
-                            let indent = if is_first_chunk {
-                                is_first_chunk = false;
-                                pfx.clone()
-                            } else {
-                                vec![Span::styled("          ", Style::default().fg(DIM))]
-                            };
-                            let mut s = indent;
-                            s.push(Span::styled(chunk, Style::default().fg(PREVIEW)));
-                            lines.push(Line::from(s));
-                            pos = end;
-                        }
-                    } else {
-                        let mut s = pfx;
-                        s.extend(parse_inline_md(text_line, Style::default().fg(PREVIEW)));
-                        lines.push(Line::from(s));
-                    }
-                }
-                lines.push(Line::from(""));
-            }
+if in_code_block {
+    let mut s = pfx;
+    s.push(Span::styled(format!("  {}", text_line), Style::default().fg(code_color)));
+    lines.push(Line::from(s));
+} else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
+    let mut s = pfx;
+    s.push(Span::styled("• ", Style::default().fg(bullet_color)));
+    s.extend(parse_inline_md(&trimmed[2..], Style::default().fg(PREVIEW)));
+    lines.push(Line::from(s));
+} else if trimmed.starts_with("# ") || trimmed.starts_with("## ") {
+    let mut s = pfx;
+    s.extend(parse_inline_md(trimmed, Style::default().fg(heading_color).bold()));
+    lines.push(Line::from(s));
+} else if trimmed.len() > 2 && trimmed.as_bytes()[0].is_ascii_digit() && trimmed.contains(". ") {
+    if let Some(dot_pos) = trimmed.find(". ") {
+        let mut s = pfx;
+        s.push(Span::styled(trimmed[..dot_pos + 2].to_string(), Style::default().fg(bullet_color)));
+        s.extend(parse_inline_md(&trimmed[dot_pos + 2..], Style::default().fg(PREVIEW)));
+        lines.push(Line::from(s));
+    }
+} else if text_line.len() > text_w && text_w > 0 {
+    // Long line — manual wrap with hanging indent
+    let chars: Vec<char> = text_line.chars().collect();
+    let mut pos = 0;
+    let mut is_first_chunk = true;
+    while pos < chars.len() {
+        let end = (pos + text_w).min(chars.len());
+        let chunk: String = chars[pos..end].iter().collect();
+        let indent = if is_first_chunk {
+  is_first_chunk = false;
+  pfx.clone()
+        } else {
+  vec![Span::styled("           ", Style::default().fg(DIM))]
+        };
+        let mut s = indent;
+        s.push(Span::styled(chunk, Style::default().fg(PREVIEW)));
+        lines.push(Line::from(s));
+        pos = end;
+    }
+} else {
+    let mut s = pfx;
+    s.extend(parse_inline_md(text_line, Style::default().fg(PREVIEW)));
+    lines.push(Line::from(s));
+}
+      }
+      lines.push(Line::from(""));
+  }
         }
     }
 
@@ -1255,7 +1281,7 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
         app.chat_search_matches = match_indices;
         // Re-clamp current if matches changed
         if !app.chat_search_matches.is_empty() && app.chat_search_current >= app.chat_search_matches.len() {
-            app.chat_search_current = 0;
+  app.chat_search_current = 0;
         }
     } else {
         app.chat_search_matches.clear();
@@ -1284,9 +1310,9 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
     let scroll_label = if !app.chat_search_query.is_empty() {
         let total = app.chat_search_matches.len();
         if total > 0 {
-            format!(" Chat [{}/{}] ", app.chat_search_current + 1, total)
+  format!(" Chat [{}/{}] ", app.chat_search_current + 1, total)
         } else {
-            " Chat [no matches] ".to_string()
+  " Chat [no matches] ".to_string()
         }
     } else if detail_scroll > 0 {
         format!(" Chat [{}↑] ", detail_scroll)
@@ -1297,21 +1323,21 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
     let chat = Paragraph::new(lines)
         .scroll((scroll_y, 0))
         .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(BORDER))
-                .title(scroll_label)
-                .title_style(Style::default().fg(Color::White).bold()),
+  Block::default()
+      .borders(Borders::ALL)
+      .border_style(Style::default().fg(BORDER))
+      .title(scroll_label)
+      .title_style(Style::default().fg(Color::White).bold()),
         );
     f.render_widget(chat, chat_area);
 
     // Scrollbar
     {
         let mut scrollbar_state = ratatui::widgets::ScrollbarState::new(max_scroll)
-            .position(scroll_y as usize);
+  .position(scroll_y as usize);
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .style(Style::default().fg(DIM))
-            .thumb_style(Style::default().fg(LABEL));
+  .style(Style::default().fg(DIM))
+  .thumb_style(Style::default().fg(LABEL));
         f.render_stateful_widget(scrollbar, chat_area, &mut scrollbar_state);
     }
 
