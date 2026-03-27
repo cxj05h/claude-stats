@@ -1,11 +1,11 @@
 ---
 name: ready-ship
-description: Ship claude-stats changes to GitHub. Use this skill whenever the user says "ready ship", "push", "ship it", "deploy", "send it", or wants to commit and push their work to the remote repo. Also use when the user asks to update the README or wants to make sure everything is tracked before pushing.
+description: Ship claude-stats changes to GitHub. Use this skill whenever the user says "ready ship", "push", "ship it", "deploy", "send it", "release", or wants to commit and push their work to the remote repo. Also use when the user asks to update the README, cut a release, or make sure everything is tracked before pushing.
 ---
 
 # Ready Ship
 
-Ship the current state of claude-stats to GitHub. This skill handles the full commit-and-push pipeline: lint, build, track new files, update the README, commit, and push.
+Ship the current state of claude-stats to GitHub. This skill handles the full pipeline: lint, build, track new files, update the README, commit, push, and optionally cut a release with cross-platform binaries.
 
 ## Workflow
 
@@ -37,7 +37,7 @@ Check for untracked files that should be in the repo:
 git status
 ```
 
-If there are new source files (`.rs`, `.toml`, `.md`, etc.), stage them. Ignore build artifacts -- the `.gitignore` covers `target/`.
+If there are new source files (`.rs`, `.toml`, `.md`, `.yml`, etc.), stage them. Ignore build artifacts -- the `.gitignore` covers `target/`.
 
 If a file was deleted, make sure it's properly removed from tracking too (`git rm`).
 
@@ -85,10 +85,57 @@ git push origin main
 
 If on a feature branch (not main), push that branch instead -- don't push to main. The `/cs-feature` skill handles merging feature branches.
 
-### 7. Confirm
+### 7. Release (optional)
+
+Ask the user: "Want to cut a release?" If they say yes (or if they asked for a release upfront):
+
+**a. Bump the version in `Cargo.toml`:**
+
+Determine the next version based on what changed:
+- Bug fixes / minor tweaks → patch bump (0.1.0 → 0.1.1)
+- New features → minor bump (0.1.0 → 0.2.0)
+- Breaking changes → major bump (0.1.0 → 1.0.0)
+
+Ask the user to confirm the version if unsure.
+
+**b. Commit the version bump:**
+
+```
+git add Cargo.toml Cargo.lock
+git commit -m "$(cat <<'EOF'
+chore: bump version to v<X.Y.Z>
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+**c. Tag and push:**
+
+```
+git tag v<X.Y.Z>
+git push origin main --tags
+```
+
+Pushing the tag triggers the CI workflow (`.github/workflows/release.yml`) which builds binaries for:
+- macOS x86_64
+- macOS aarch64 (Apple Silicon)
+- Linux x86_64
+- Linux aarch64
+
+**d. Monitor the release:**
+
+```
+gh run list --limit 1
+```
+
+Tell the user the CI is building and they can check progress with `gh run watch` or at the GitHub Actions page. Once complete, the release will appear at `https://github.com/cxj05h/claude-stats/releases` with downloadable binaries.
+
+### 8. Confirm
 
 Report back with:
 - What was committed (files changed, summary)
 - The commit hash
 - Confirmation it pushed successfully
 - Any README changes made
+- If a release was cut: the version tag and CI status
