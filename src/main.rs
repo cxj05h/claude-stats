@@ -123,6 +123,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 // Clean exit, then hand off terminal to claude --resume
                                 if let Some(s) = app.selected_session() {
                                     let sid = s.id.clone();
+                                    // Resolve cwd: expand ~ back to home dir
+                                    let cwd = s.cwd.replace("~", &dirs::home_dir().unwrap_or_default().to_string_lossy());
                                     // Restore terminal
                                     disable_raw_mode()?;
                                     execute!(
@@ -131,10 +133,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         LeaveAlternateScreen
                                     )?;
                                     terminal.show_cursor()?;
-                                    // Replace process with claude (never returns)
+                                    // Replace process with claude from the session's directory
                                     use std::os::unix::process::CommandExt;
                                     let e = std::process::Command::new("claude")
                                         .arg("--resume")
+                                        .arg(sid)
+                                        .current_dir(&cwd)
                                         .exec();
                                     eprintln!("Failed to launch claude: {}", e);
                                     std::process::exit(1);
