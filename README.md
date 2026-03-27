@@ -7,12 +7,13 @@ A native terminal dashboard for Claude Code usage. Browse sessions, inspect toke
 ## Features
 
 - **Session browser** -- 30 most recent sessions, sorted by activity, with fuzzy search
-- **Live detection** -- highlights the active session (most recent activity within 10 minutes)
+- **Live detection** -- prominent green indicator with `◉ live` label on the active session
 - **Token usage** -- input/output/cache read/cache write per session
 - **Context breakdown** -- system prompts, user messages, tool results, assistant output, images
 - **Model & effort tracking** -- model timeline and effort level changes within a session
 - **MCP tool usage** -- counts per MCP server
 - **Scrollable chat history** -- full conversation with markdown rendering, code blocks, diff highlighting
+- **In-chat search** -- `/` to search within chat, `n`/`N` for next/prev match, highlighted results
 - **Animated mascot** -- pixel art Claude with blinking eyes and wing flap on scroll
 - **Agent linking** -- subagent sessions linked to parents via directory structure
 - **Weekly usage stats** -- Opus/Sonnet token totals from local stats cache
@@ -61,7 +62,8 @@ claude-stats
 | `Left/Right` | Cycle info tabs (list) / prev/next session (detail) |
 | `Esc/q` | Back / quit |
 | `f` | Toggle fullscreen chat |
-| `o` | Open session JSONL file |
+| `/` | Search within chat |
+| `n/N` | Next/previous search match |
 | `c` | Resume session in Claude Code |
 | `PgUp/PgDn` | Fast scroll chat |
 | `Home/End` | Jump to top/bottom of chat |

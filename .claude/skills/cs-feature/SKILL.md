@@ -24,7 +24,9 @@ git status
 
 If there are uncommitted changes, ask the user what to do -- don't silently stash or discard work. Options: commit first (use `/ready-ship`), stash, or discard.
 
-### 2. Ask: worktree or feature branch?
+### 2. HARD GATE: Ask worktree or feature branch?
+
+**THIS IS A HARD GATE. You MUST stop here and wait for the user's answer before doing ANYTHING else.**
 
 Use the `AskUserQuestion` tool with these two options:
 
@@ -32,7 +34,13 @@ Use the `AskUserQuestion` tool with these two options:
 > - **Worktree** — separate directory on disk, work on the feature without leaving your current directory. Ideal for parallel work or keeping context separate.
 > - **Feature branch** — switch the current checkout to a new branch. Simpler, single directory.
 
-Wait for the user to choose before proceeding.
+**Rules:**
+- Do NOT enter plan mode until the workspace is created and verified
+- Do NOT start exploring code, writing plans, or making edits
+- Do NOT proceed to Path A or Path B until the user has answered
+- Your response after asking MUST end — no additional tool calls, no planning, no exploration
+- Once the user answers, complete ALL workspace setup steps (create, verify, report ready) before any other work begins
+- For worktrees: you MUST `cd` into the worktree directory so all subsequent work happens there
 
 ---
 
@@ -61,22 +69,30 @@ git worktree add ../claude-stats-<name> -b feature/<name>
 
 This creates `../claude-stats-<name>/` as an isolated checkout on the new branch.
 
-#### A4. Verify baseline in the worktree
+#### A4. cd into the worktree
+
+**You MUST change into the worktree directory so all subsequent commands, edits, and file reads happen there — not in the original repo.**
 
 ```
-cd ../claude-stats-<name> && cargo check
+cd ../claude-stats-<name>
+```
+
+#### A5. Verify baseline in the worktree
+
+```
+cargo check
 ```
 
 If this fails, the issue is in main — flag it before the user builds on a broken foundation.
 
-#### A5. Report ready state
+#### A6. Report ready state
 
 Tell the user:
 - The worktree path (`../claude-stats-<name>/`)
 - The branch name (`feature/<name>`)
 - That the baseline compiles cleanly
-- To `cd ../claude-stats-<name>` to start working there
-- When done, return here and use `/cs-feature` to merge back
+- That this session is now working from the worktree directory
+- When done, use `/cs-feature` to merge back
 
 ---
 
@@ -97,7 +113,15 @@ Ask the user for a branch name if they haven't provided one. Convention: `featur
 git checkout -b feature/<name>
 ```
 
-#### B3. Verify clean baseline
+#### B3. Verify you're on the feature branch
+
+```
+git branch --show-current
+```
+
+Confirm the output is `feature/<name>`. Do NOT proceed if still on main.
+
+#### B4. Verify clean baseline
 
 ```
 cargo check
@@ -105,10 +129,10 @@ cargo check
 
 If this fails, the issue is in main — flag it before the user starts building on a broken foundation.
 
-#### B4. Report ready state
+#### B5. Report ready state
 
 Tell the user:
-- What branch they're on
+- What branch they're on (confirmed via `git branch --show-current`)
 - That the baseline compiles cleanly
 - They can now start making changes
 - When done, use `/cs-feature` again to merge back
