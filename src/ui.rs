@@ -573,7 +573,7 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
             format!(" {}", session.title)
         };
         f.render_widget(Paragraph::new(Line::from(
-            Span::styled(title_text, Style::default().bold().fg(if is_live { Color::Green } else { Color::White }))
+            Span::styled(title_text, Style::default().bold().fg(if is_live { Color::Green } else { Color::Yellow }))
         )), chunks[0]);
 
         // Chat + mascot
@@ -648,7 +648,7 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
         format!("  {}", session.title)
     };
     let header = Paragraph::new(Line::from(vec![
-        Span::styled(title_text, Style::default().bold().fg(if is_live { Color::Green } else { Color::White })),
+        Span::styled(title_text, Style::default().bold().fg(if is_live { Color::Green } else { Color::Yellow })),
     ]))
     .block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(LABEL)));
     f.render_widget(header, chunks[0]);
@@ -731,6 +731,18 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
         info_lines.push(Line::from(vec![
             Span::styled("MCPs      ", Style::default().fg(LABEL)),
             Span::styled(mcp_str, Style::default().fg(Color::Blue)),
+        ]));
+    }
+
+    if !session.git_branch.is_empty() {
+        let branch_display = if let Some(name) = session.git_branch.strip_prefix("worktree-") {
+            format!("\u{2294} {}", name)
+        } else {
+            session.git_branch.clone()
+        };
+        info_lines.push(Line::from(vec![
+            Span::styled("Branch    ", Style::default().fg(LABEL)),
+            Span::styled(branch_display, Style::default().fg(Color::Cyan)),
         ]));
     }
 
@@ -995,8 +1007,7 @@ fn highlight_search_matches(lines: &mut Vec<Line<'_>>, query: &str, current_matc
 fn render_markdown_to_lines(
     text: &str,
     text_w: usize,
-    prefix: &str,
-    prefix_color: Color,
+    badge_spans: Vec<Span<'static>>,
 ) -> Vec<Line<'static>> {
     let code_color = Color::Rgb(180, 140, 200);
     let heading_color = Color::Rgb(200, 200, 220);
@@ -1041,12 +1052,11 @@ fn render_markdown_to_lines(
     let make_prefix = |first: &mut bool| -> Vec<Span<'static>> {
         if *first {
             *first = false;
-            vec![
-                Span::styled(prefix.to_string(), Style::default().fg(prefix_color).bold()),
-                Span::styled(" \u{25b8} ", Style::default().fg(DIM)),
-            ]
+            let mut v = badge_spans.clone();
+            v.push(Span::styled(" \u{25b8} ", Style::default().fg(DIM)));
+            v
         } else {
-            vec![Span::styled("          ".to_string(), Style::default().fg(DIM))]
+            vec![Span::styled("           ".to_string(), Style::default().fg(DIM))]
         }
     };
 
@@ -1307,7 +1317,7 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
     // ── Chat window: preserve formatting, render markdown-like content ──
     app.clickable_lines.borrow_mut().clear();
     let chat_w = chat_area.width.saturating_sub(2) as usize; // inner width minus borders
-    let indent_w = 10usize; // "     me ▸ " or " claude ▸ " prefix width
+    let indent_w = 11usize; // badge + " ▸ " prefix width
     let text_w = chat_w.saturating_sub(indent_w); // available width for text content
     let mut lines: Vec<Line> = Vec::new();
     let diff_add = Color::Rgb(80, 200, 80);       // green for +
@@ -1418,13 +1428,24 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
                     continue;
                 }
 
-                let (prefix, prefix_color) = if m.role == "user" {
-                    ("     me", Color::Rgb(100, 180, 220))
+                let badge_spans: Vec<Span<'static>> = if m.role == "user" {
+                    let c = Color::Rgb(60, 120, 190);
+                    vec![
+                        Span::raw("  "),
+                        Span::styled("\u{E0B6}", Style::default().fg(c)),
+                        Span::styled(" me ", Style::default().fg(Color::White).bg(c).bold()),
+                        Span::styled("\u{E0B4}", Style::default().fg(c)),
+                    ]
                 } else {
-                    (" claude", Color::Green)
+                    let c = Color::Rgb(40, 140, 70);
+                    vec![
+                        Span::styled("\u{E0B6}", Style::default().fg(c)),
+                        Span::styled("claude", Style::default().fg(Color::White).bg(c).bold()),
+                        Span::styled("\u{E0B4}", Style::default().fg(c)),
+                    ]
                 };
 
-                lines.extend(render_markdown_to_lines(text, text_w, prefix, prefix_color));
+                lines.extend(render_markdown_to_lines(text, text_w, badge_spans));
                 lines.push(Line::from(""));
             }
         }

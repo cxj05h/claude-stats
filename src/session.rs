@@ -19,6 +19,7 @@ pub struct Session {
     pub file_path: String,
     pub title: String,
     pub cwd: String,
+    pub git_branch: String,
     pub model: String,               // most recent PRIMARY model (ignoring subagents)
     pub models_timeline: Vec<(usize, String)>,
     pub start_ts: Option<DateTime<Utc>>,
@@ -200,6 +201,7 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
         file_path: path.to_string_lossy().to_string(),
         title: String::new(),
         cwd: String::new(),
+        git_branch: String::new(),
         model: String::new(),
         models_timeline: Vec::new(),
         start_ts: None,
@@ -274,6 +276,9 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                 if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
                     session.cwd = cwd.to_string();
                 }
+            }
+            if let Some(branch) = entry.get("gitBranch").and_then(|v| v.as_str()) {
+                session.git_branch = branch.to_string();
             }
         }
 
