@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.tick += 1;
         app.mascot.update();
 
-        if app.tick % 30 == 0 {
+        if app.tick.is_multiple_of(30) {
             app.reload_sessions();
         }
 
@@ -225,11 +225,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let mut best: Option<usize> = None;
                                         let mut best_dist = 3usize;
                                         for &(line_idx, msg_idx) in clickables.iter() {
-                                            let dist = if click_line >= line_idx {
-                                                click_line - line_idx
-                                            } else {
-                                                line_idx - click_line
-                                            };
+                                            let dist = click_line.abs_diff(line_idx);
                                             if dist < best_dist {
                                                 best_dist = dist;
                                                 best = Some(msg_idx);
