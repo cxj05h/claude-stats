@@ -1,5 +1,6 @@
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, CodeBlockKind};
 use ratatui::{prelude::*, widgets::*};
 use std::time::{Duration, Instant};
 
@@ -158,6 +159,7 @@ pub struct App {
     pub chat_search_current: usize,       // index into chat_search_matches
     pub chat_total_lines: usize,          // total rendered lines (set by draw)
     pub chat_inner_h: usize,              // visible chat height (set by draw)
+    pub mouse_captured: bool,             // whether mouse events are captured (vs terminal selection)
 }
 
 impl App {
@@ -182,6 +184,7 @@ impl App {
             chat_scroll_y: std::cell::Cell::new(0),
             clickable_lines: std::cell::RefCell::new(Vec::new()),
             matcher: SkimMatcherV2::default(),
+            mouse_captured: true,
             chat_search_active: false,
             chat_search_query: String::new(),
             chat_search_matches: Vec::new(),
@@ -206,14 +209,12 @@ impl App {
     pub fn scroll_to_search_match(&mut self) {
         if let Some(&line_idx) = self.chat_search_matches.get(self.chat_search_current) {
             let max_scroll = self.chat_total_lines.saturating_sub(self.chat_inner_h);
-            // Center the match in the viewport
             let half = self.chat_inner_h / 2;
-            if line_idx >= max_scroll {
-                self.detail_scroll = 0;
-            } else {
-                self.detail_scroll = max_scroll.saturating_sub(line_idx).saturating_sub(half);
-            }
-            // Clamp
+            // scroll_y = max_scroll - detail_scroll (0=bottom, higher=scrolled up)
+            // To center line_idx: scroll_y = line_idx.saturating_sub(half)
+            // So: detail_scroll = max_scroll - scroll_y
+            let target_scroll_y = line_idx.saturating_sub(half);
+            self.detail_scroll = max_scroll.saturating_sub(target_scroll_y);
             self.detail_scroll = self.detail_scroll.min(max_scroll);
         }
     }
@@ -922,6 +923,8 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
             Span::styled("laude ", Style::default().fg(LABEL)),
             Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
             Span::styled("search ", Style::default().fg(LABEL)),
+            Span::styled("m", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled(if app.mouse_captured { "ouse " } else { "ouse:select " }, Style::default().fg(LABEL)),
             Span::styled("←→", Style::default().fg(FOOTER_KEY).bold()),
             Span::styled("nav  ", Style::default().fg(LABEL)),
             Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
@@ -988,46 +991,303 @@ fn highlight_search_matches(lines: &mut Vec<Line<'_>>, query: &str, current_matc
     match_lines
 }
 
-/// Parse inline markdown: **bold** and `code` into styled spans
-fn parse_inline_md<'a>(text: &'a str, base_style: Style) -> Vec<Span<'a>> {
-    let mut spans: Vec<Span<'a>> = Vec::new();
-    let mut remaining = text;
+/// Render markdown text to styled ratatui Lines using pulldown-cmark.
+/// Handles bold, italic, strikethrough, code spans, code blocks, headings,
+/// bullets, numbered lists, blockquotes, links, and word-boundary wrapping.
+fn render_markdown_to_lines(
+    text: &str,
+    text_w: usize,
+    prefix: &str,
+    prefix_color: Color,
+) -> Vec<Line<'static>> {
+    let code_color = Color::Rgb(180, 140, 200);
+    let heading_color = Color::Rgb(200, 200, 220);
+    let bullet_color = Color::Rgb(100, 180, 220);
+    let base_color = PREVIEW;
 
-    while !remaining.is_empty() {
-        // Look for **bold** or `code`
-        if let Some(pos) = remaining.find("**") {
-            if pos > 0 {
-                spans.push(Span::styled(&remaining[..pos], base_style));
-            }
-            let after = &remaining[pos + 2..];
-            if let Some(end) = after.find("**") {
-                spans.push(Span::styled(&after[..end], base_style.bold()));
-                remaining = &after[end + 2..];
-            } else {
-                spans.push(Span::styled(&remaining[pos..], base_style));
-                break;
-            }
-        } else if let Some(pos) = remaining.find('`') {
-            if pos > 0 {
-                spans.push(Span::styled(&remaining[..pos], base_style));
-            }
-            let after = &remaining[pos + 1..];
-            if let Some(end) = after.find('`') {
-                spans.push(Span::styled(
-                    &after[..end],
-                    Style::default().fg(Color::Rgb(180, 140, 200)),
-                ));
-                remaining = &after[end + 1..];
-            } else {
-                spans.push(Span::styled(&remaining[pos..], base_style));
-                break;
-            }
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut current_spans: Vec<Span<'static>> = Vec::new();
+    let mut current_col: usize = 0;
+    let mut first_line = true;
+
+    // Style stack for nested inline formatting
+    let mut bold = false;
+    let mut italic = false;
+    let mut strikethrough = false;
+
+    // Block state
+    let mut in_code_block = false;
+    let mut in_heading = false;
+    let mut in_blockquote = false;
+    let mut list_stack: Vec<Option<u64>> = Vec::new(); // None = unordered, Some(n) = ordered at n
+    let mut item_started = false;
+
+    let effective_w = if text_w > 2 { text_w } else { 80 };
+
+    // Helper: build the current composite style
+    let build_style = |bold: bool, italic: bool, strikethrough: bool, in_heading: bool, in_code: bool| -> Style {
+        let mut s = if in_heading {
+            Style::default().fg(heading_color).bold()
+        } else if in_code {
+            Style::default().fg(code_color)
         } else {
-            spans.push(Span::styled(remaining, base_style));
-            break;
+            Style::default().fg(base_color)
+        };
+        if bold { s = s.bold(); }
+        if italic { s = s.italic(); }
+        if strikethrough { s = s.add_modifier(Modifier::CROSSED_OUT); }
+        s
+    };
+
+    // Helper: get the prefix spans for the current line
+    let make_prefix = |first: &mut bool| -> Vec<Span<'static>> {
+        if *first {
+            *first = false;
+            vec![
+                Span::styled(prefix.to_string(), Style::default().fg(prefix_color).bold()),
+                Span::styled(" \u{25b8} ", Style::default().fg(DIM)),
+            ]
+        } else {
+            vec![Span::styled("          ".to_string(), Style::default().fg(DIM))]
+        }
+    };
+
+    // Flush current_spans into a Line
+    let flush_line = |lines: &mut Vec<Line<'static>>,
+                      current_spans: &mut Vec<Span<'static>>,
+                      current_col: &mut usize,
+                      first_line: &mut bool| {
+        let mut spans = make_prefix(first_line);
+        spans.append(current_spans);
+        lines.push(Line::from(spans));
+        *current_col = 0;
+    };
+
+    let mut opts = Options::empty();
+    opts.insert(Options::ENABLE_STRIKETHROUGH);
+    opts.insert(Options::ENABLE_TABLES);
+    let parser = Parser::new_ext(text, opts);
+
+    for event in parser {
+        match event {
+            Event::Start(Tag::Heading { level: _, .. }) => {
+                // Flush any pending content before heading
+                if !current_spans.is_empty() {
+                    flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                }
+                in_heading = true;
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                // Flush the heading line
+                if !current_spans.is_empty() {
+                    flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                }
+                in_heading = false;
+            }
+            Event::Start(Tag::Emphasis) => { italic = true; }
+            Event::End(TagEnd::Emphasis) => { italic = false; }
+            Event::Start(Tag::Strong) => { bold = true; }
+            Event::End(TagEnd::Strong) => { bold = false; }
+            Event::Start(Tag::Strikethrough) => { strikethrough = true; }
+            Event::End(TagEnd::Strikethrough) => { strikethrough = false; }
+
+            Event::Start(Tag::CodeBlock(kind)) => {
+                if !current_spans.is_empty() {
+                    flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                }
+                in_code_block = true;
+                let label = match &kind {
+                    CodeBlockKind::Fenced(lang) if !lang.is_empty() => lang.to_string(),
+                    _ => "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}".to_string(),
+                };
+                let mut pfx = make_prefix(&mut first_line);
+                pfx.push(Span::styled(label, Style::default().fg(code_color).italic()));
+                lines.push(Line::from(pfx));
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                if !current_spans.is_empty() {
+                    flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                }
+                in_code_block = false;
+                let mut pfx = make_prefix(&mut first_line);
+                pfx.push(Span::styled("\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}".to_string(), Style::default().fg(code_color).italic()));
+                lines.push(Line::from(pfx));
+            }
+
+            Event::Start(Tag::BlockQuote(_)) => {
+                in_blockquote = true;
+            }
+            Event::End(TagEnd::BlockQuote(_)) => {
+                in_blockquote = false;
+            }
+
+            Event::Start(Tag::List(start)) => {
+                list_stack.push(start);
+            }
+            Event::End(TagEnd::List(_)) => {
+                list_stack.pop();
+            }
+            Event::Start(Tag::Item) => {
+                if !current_spans.is_empty() {
+                    flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                }
+                item_started = true;
+                // Determine list depth indent (2 chars per level beyond first)
+                let depth = list_stack.len().saturating_sub(1);
+                let indent_str: String = "  ".repeat(depth);
+                if !indent_str.is_empty() {
+                    current_spans.push(Span::styled(indent_str.clone(), Style::default()));
+                    current_col += depth * 2;
+                }
+                // Emit bullet or number
+                if let Some(counter) = list_stack.last().copied().flatten() {
+                    let label = format!("{}. ", counter);
+                    current_col += label.len();
+                    current_spans.push(Span::styled(label, Style::default().fg(bullet_color)));
+                    // Increment the counter for next item
+                    if let Some(entry) = list_stack.last_mut() {
+                        *entry = Some(counter + 1);
+                    }
+                } else {
+                    current_spans.push(Span::styled("\u{2022} ".to_string(), Style::default().fg(bullet_color)));
+                    current_col += 2;
+                }
+            }
+            Event::End(TagEnd::Item) => {
+                if !current_spans.is_empty() {
+                    flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                }
+                item_started = false;
+            }
+
+            Event::Start(Tag::Paragraph) => {
+                // Nothing needed — paragraph start is implicit
+            }
+            Event::End(TagEnd::Paragraph) => {
+                if !current_spans.is_empty() {
+                    flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                }
+            }
+
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                // We'll render link text normally, then show URL after
+                // Link style handled in Text event via bold/italic state
+                let _ = dest_url; // URL display handled when we get the text
+            }
+            Event::End(TagEnd::Link) => {}
+
+            Event::Text(content) => {
+                let style = build_style(bold, italic, strikethrough, in_heading, in_code_block);
+
+                if in_code_block {
+                    // Code blocks: render each line as-is with code color, no word-wrap
+                    for (i, code_line) in content.split('\n').enumerate() {
+                        if i > 0 {
+                            flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                        }
+                        current_spans.push(Span::styled(format!("  {}", code_line), style));
+                        current_col += code_line.len() + 2;
+                    }
+                } else {
+                    // Blockquote prefix
+                    let bq_prefix = if in_blockquote { "\u{258e} " } else { "" };
+                    let bq_cost = if in_blockquote { 2 } else { 0 };
+                    let bq_style = Style::default().fg(LABEL);
+
+                    // Word-wrap text content
+                    for word in content.split_whitespace() {
+                        let word_len = word.chars().count();
+                        let need_space = if current_col > 0 && !item_started { 1 } else { 0 };
+                        item_started = false;
+
+                        if current_col + need_space + word_len + bq_cost > effective_w && current_col > 0 {
+                            // Wrap to next line
+                            flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                            if in_blockquote {
+                                current_spans.push(Span::styled(bq_prefix.to_string(), bq_style));
+                                current_col += bq_cost;
+                            }
+                        }
+
+                        if current_col == 0 && in_blockquote && current_spans.is_empty() {
+                            current_spans.push(Span::styled(bq_prefix.to_string(), bq_style));
+                            current_col += bq_cost;
+                        }
+
+                        if need_space > 0 && current_col > 0 {
+                            current_spans.push(Span::styled(" ".to_string(), style));
+                            current_col += 1;
+                        }
+                        current_spans.push(Span::styled(word.to_string(), style));
+                        current_col += word_len;
+                    }
+                }
+            }
+
+            Event::Code(content) => {
+                let word = content.to_string();
+                let word_len = word.chars().count() + 2; // backtick visual
+                let need_space = if current_col > 0 { 1 } else { 0 };
+
+                if current_col + need_space + word_len > effective_w && current_col > 0 {
+                    flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                }
+                if need_space > 0 && current_col > 0 {
+                    current_spans.push(Span::styled(" ".to_string(), Style::default().fg(base_color)));
+                    current_col += 1;
+                }
+                current_spans.push(Span::styled(word, Style::default().fg(code_color)));
+                current_col += word_len;
+            }
+
+            Event::SoftBreak => {
+                // Treat as a space (CommonMark default)
+                if current_col > 0 {
+                    let style = build_style(bold, italic, strikethrough, in_heading, in_code_block);
+                    current_spans.push(Span::styled(" ".to_string(), style));
+                    current_col += 1;
+                }
+            }
+            Event::HardBreak => {
+                flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+            }
+            Event::Rule => {
+                if !current_spans.is_empty() {
+                    flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                }
+                let mut pfx = make_prefix(&mut first_line);
+                let rule_w = effective_w.min(40);
+                pfx.push(Span::styled("\u{2500}".repeat(rule_w), Style::default().fg(DIM)));
+                lines.push(Line::from(pfx));
+            }
+
+            // Table support (basic)
+            Event::Start(Tag::Table(_)) | Event::End(TagEnd::Table) => {}
+            Event::Start(Tag::TableHead) | Event::End(TagEnd::TableHead) => {}
+            Event::Start(Tag::TableRow) | Event::End(TagEnd::TableRow) => {
+                if !current_spans.is_empty() {
+                    flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+                }
+            }
+            Event::Start(Tag::TableCell) => {
+                if current_col > 0 {
+                    current_spans.push(Span::styled(" \u{2502} ".to_string(), Style::default().fg(DIM)));
+                    current_col += 3;
+                }
+            }
+            Event::End(TagEnd::TableCell) => {}
+
+            // Catch-all for other events we don't handle
+            _ => {}
         }
     }
-    spans
+
+    // Flush any remaining content
+    if !current_spans.is_empty() {
+        flush_line(&mut lines, &mut current_spans, &mut current_col, &mut first_line);
+    }
+
+    lines
 }
 
 fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut App) {
@@ -1044,6 +1304,7 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
 
     let chat_area = parts[0];
     let char_area = parts[1];
+    app.chat_area_top = chat_area.y;
 
     // ── Chat window: preserve formatting, render markdown-like content ──
     app.clickable_lines.borrow_mut().clear();
@@ -1051,11 +1312,8 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
     let indent_w = 10usize; // "     me ▸ " or " claude ▸ " prefix width
     let text_w = chat_w.saturating_sub(indent_w); // available width for text content
     let mut lines: Vec<Line> = Vec::new();
-    let code_color = Color::Rgb(180, 140, 200);  // purple for code
     let diff_add = Color::Rgb(80, 200, 80);       // green for +
     let diff_del = Color::Rgb(200, 80, 80);       // red for -
-    let heading_color = Color::Rgb(200, 200, 220); // bright for headers
-    let bullet_color = Color::Rgb(100, 180, 220);  // cyan for bullets
 
     let compress_color = Color::Rgb(220, 160, 60);
     let tool_color = Color::Rgb(100, 200, 100); // green for tool dots
@@ -1168,81 +1426,7 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
                     (" claude", Color::Green)
                 };
 
-                let mut first_output_line = true;
-                let mut in_code_block = false;
-
-                for (li, text_line) in text.split('\n').enumerate() {
-                    let trimmed = text_line.trim();
-
-                    if trimmed.starts_with("```") {
-                        in_code_block = !in_code_block;
-                        let label = if in_code_block {
-                            trimmed.strip_prefix("```").unwrap_or("──────")
-                        } else { "──────" };
-                        let indent = if first_output_line {
-                            first_output_line = false;
-                            vec![Span::styled(prefix, Style::default().fg(prefix_color).bold()), Span::styled(" ▸ ", Style::default().fg(DIM))]
-                        } else {
-                            vec![Span::styled("          ", Style::default().fg(DIM))]
-                        };
-                        let mut spans = indent;
-                        spans.push(Span::styled(label.to_string(), Style::default().fg(code_color).italic()));
-                        lines.push(Line::from(spans));
-                        continue;
-                    }
-
-                    let pfx = if first_output_line {
-                        first_output_line = false;
-                        vec![Span::styled(prefix, Style::default().fg(prefix_color).bold()), Span::styled(" ▸ ", Style::default().fg(DIM))]
-                    } else {
-                        vec![Span::styled("          ", Style::default().fg(DIM))]
-                    };
-
-                    if in_code_block {
-                        let mut s = pfx;
-                        s.push(Span::styled(format!("  {}", text_line), Style::default().fg(code_color)));
-                        lines.push(Line::from(s));
-                    } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-                        let mut s = pfx;
-                        s.push(Span::styled("• ", Style::default().fg(bullet_color)));
-                        s.extend(parse_inline_md(&trimmed[2..], Style::default().fg(PREVIEW)));
-                        lines.push(Line::from(s));
-                    } else if trimmed.starts_with("# ") || trimmed.starts_with("## ") {
-                        let mut s = pfx;
-                        s.extend(parse_inline_md(trimmed, Style::default().fg(heading_color).bold()));
-                        lines.push(Line::from(s));
-                    } else if trimmed.len() > 2 && trimmed.as_bytes()[0].is_ascii_digit() && trimmed.contains(". ") {
-                        if let Some(dot_pos) = trimmed.find(". ") {
-                            let mut s = pfx;
-                            s.push(Span::styled(trimmed[..dot_pos + 2].to_string(), Style::default().fg(bullet_color)));
-                            s.extend(parse_inline_md(&trimmed[dot_pos + 2..], Style::default().fg(PREVIEW)));
-                            lines.push(Line::from(s));
-                        }
-                    } else if text_line.len() > text_w && text_w > 0 {
-                        // Long line — manual wrap with hanging indent
-                        let chars: Vec<char> = text_line.chars().collect();
-                        let mut pos = 0;
-                        let mut is_first_chunk = true;
-                        while pos < chars.len() {
-                            let end = (pos + text_w).min(chars.len());
-                            let chunk: String = chars[pos..end].iter().collect();
-                            let indent = if is_first_chunk {
-                                is_first_chunk = false;
-                                pfx.clone()
-                            } else {
-                                vec![Span::styled("          ", Style::default().fg(DIM))]
-                            };
-                            let mut s = indent;
-                            s.push(Span::styled(chunk, Style::default().fg(PREVIEW)));
-                            lines.push(Line::from(s));
-                            pos = end;
-                        }
-                    } else {
-                        let mut s = pfx;
-                        s.extend(parse_inline_md(text_line, Style::default().fg(PREVIEW)));
-                        lines.push(Line::from(s));
-                    }
-                }
+                lines.extend(render_markdown_to_lines(text, text_w, prefix, prefix_color));
                 lines.push(Line::from(""));
             }
         }
