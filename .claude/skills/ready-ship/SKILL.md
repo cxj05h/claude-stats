@@ -47,8 +47,11 @@ Copy the fresh build so the installed version matches what's being shipped:
 
 ```bash
 cp target/release/claude-stats ~/.local/bin/claude-stats
-~/.local/bin/claude-stats --help 2>&1 || echo "Binary runs"
+codesign --sign - ~/.local/bin/claude-stats
+ls -lh ~/.local/bin/claude-stats
 ```
+
+macOS kills unsigned binaries (exit 137) after they are replaced in-place. `codesign --sign -` applies an ad-hoc signature that satisfies Gatekeeper. Always run this after every `cp`. Do NOT use `--help` to verify — claude-stats is a TUI and has no `--help` flag; `ls -lh` confirms the file exists and was updated.
 
 ### 4. Track new files
 

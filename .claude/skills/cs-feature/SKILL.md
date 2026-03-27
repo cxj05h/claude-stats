@@ -226,10 +226,11 @@ If clippy has errors or warnings, fix them and commit the fix before proceeding.
 
 ```bash
 cp /absolute/path/to/worktree/target/release/claude-stats ~/.local/bin/claude-stats
-~/.local/bin/claude-stats --help 2>&1 || echo "Binary runs"
+codesign --sign - ~/.local/bin/claude-stats
+ls -lh ~/.local/bin/claude-stats
 ```
 
-Always use the full absolute path. Verify the binary reflects the expected changes. Do NOT proceed to merge if broken.
+Always use the full absolute path. macOS kills unsigned binaries (exit 137) after they are replaced in-place — always run `codesign --sign -` immediately after `cp`. Do NOT use `--help` to verify; claude-stats is a TUI with no `--help` flag. `ls -lh` confirms the file was updated. Do NOT proceed to merge if the copy or sign fails.
 
 ### 5. Review what's changing
 
@@ -285,10 +286,11 @@ Use `--no-ff` to preserve the branch history as a merge commit.
 ```bash
 cd /Users/chrisjones/Documents/Projects/claude-stats && source ~/.cargo/env && cargo build --release
 cp /Users/chrisjones/Documents/Projects/claude-stats/target/release/claude-stats ~/.local/bin/claude-stats
-~/.local/bin/claude-stats --help 2>&1 || echo "Binary runs"
+codesign --sign - ~/.local/bin/claude-stats
+ls -lh ~/.local/bin/claude-stats
 ```
 
-This catches merge issues that don't appear until after merging.
+Always run `codesign --sign -` immediately after `cp` — macOS kills unsigned binaries (exit 137) when a binary is replaced in-place. This catches merge issues that don't appear until after merging.
 
 ### 10. Clean up
 
