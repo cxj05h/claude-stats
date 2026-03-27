@@ -129,7 +129,11 @@ Pushing the tag triggers the CI workflow (`.github/workflows/release.yml`) which
 gh run list --limit 1
 ```
 
-Tell the user the CI is building and they can check progress with `gh run watch` or at the GitHub Actions page. Once complete, the release will appear at `https://github.com/cxj05h/claude-stats/releases` with downloadable binaries.
+Tell the user the CI is building and they can check progress with `gh run watch` or at the GitHub Actions page. Once complete:
+- Binaries appear at `https://github.com/cxj05h/claude-stats/releases`
+- The `update-homebrew` CI job automatically rewrites `Formula/claude-stats.rb` in `cxj05h/homebrew-tap` with new SHA256s and pushes it
+
+**No manual Homebrew update needed** — the CI handles it end-to-end. After the workflow completes, users on the tap can run `brew upgrade claude-stats` to get the new version.
 
 ### 8. Confirm
 

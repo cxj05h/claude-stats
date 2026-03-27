@@ -21,11 +21,26 @@ A native terminal dashboard for Claude Code usage. Browse sessions, inspect toke
 
 ## Install
 
-```bash
-# Build from source
-cargo build --release
+### Homebrew (macOS / Linux)
 
-# Copy to PATH
+```bash
+brew install cxj05h/tap/claude-stats
+```
+
+### One-liner (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cxj05h/claude-stats/main/install.sh | bash
+```
+
+Installs to `~/.local/bin/claude-stats`. Make sure that directory is in your `PATH`.
+
+### Build from source
+
+```bash
+git clone https://github.com/cxj05h/claude-stats
+cd claude-stats
+cargo build --release
 cp target/release/claude-stats ~/.local/bin/
 ```
 

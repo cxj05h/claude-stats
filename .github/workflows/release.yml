@@ -75,3 +75,74 @@ jobs:
         with:
           generate_release_notes: true
           files: artifacts/**/*.tar.gz
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Update Homebrew formula
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          REPO="cxj05h/claude-stats"
+
+          # Download all tarballs and compute SHA256s
+          for TARGET in aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
+            URL="https://github.com/${REPO}/releases/download/${TAG}/claude-stats-${TARGET}.tar.gz"
+            curl -fsSL "$URL" -o "/tmp/claude-stats-${TARGET}.tar.gz"
+          done
+
+          SHA_AARCH64_MAC=$(sha256sum /tmp/claude-stats-aarch64-apple-darwin.tar.gz | awk '{print $1}')
+          SHA_X86_MAC=$(sha256sum /tmp/claude-stats-x86_64-apple-darwin.tar.gz | awk '{print $1}')
+          SHA_AARCH64_LINUX=$(sha256sum /tmp/claude-stats-aarch64-unknown-linux-gnu.tar.gz | awk '{print $1}')
+          SHA_X86_LINUX=$(sha256sum /tmp/claude-stats-x86_64-unknown-linux-gnu.tar.gz | awk '{print $1}')
+
+          # Clone tap, update formula, push
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/cxj05h/homebrew-tap.git" /tmp/tap
+          cd /tmp/tap
+
+          cat > Formula/claude-stats.rb << FORMULA
+          class ClaudeStats < Formula
+            desc "Terminal dashboard for Claude Code usage — session browser, token stats, chat history"
+            homepage "https://github.com/cxj05h/claude-stats"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/${REPO}/releases/download/${TAG}/claude-stats-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA_AARCH64_MAC}"
+              else
+                url "https://github.com/${REPO}/releases/download/${TAG}/claude-stats-x86_64-apple-darwin.tar.gz"
+                sha256 "${SHA_X86_MAC}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/${REPO}/releases/download/${TAG}/claude-stats-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${SHA_AARCH64_LINUX}"
+              else
+                url "https://github.com/${REPO}/releases/download/${TAG}/claude-stats-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${SHA_X86_LINUX}"
+              end
+            end
+
+            def install
+              bin.install "claude-stats"
+            end
+
+            test do
+              assert_predicate bin/"claude-stats", :exist?
+            end
+          end
+          FORMULA
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add Formula/claude-stats.rb
+          git commit -m "chore: update claude-stats to ${VERSION}"
+          git push
