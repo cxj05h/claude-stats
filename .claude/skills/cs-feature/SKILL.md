@@ -31,7 +31,7 @@ If there are uncommitted changes, ask the user what to do -- don't silently stas
 Use the `AskUserQuestion` tool with these two options:
 
 > **How do you want to isolate this work?**
-> - **Worktree** — separate directory on disk, work on the feature without leaving your current directory. Ideal for parallel work or keeping context separate.
+> - **Worktree** — separate directory, session switches into it so the status line shows which worktree you're in. Ideal for parallel work or keeping context separate.
 > - **Feature branch** — switch the current checkout to a new branch. Simpler, single directory.
 
 **Rules:**
@@ -40,7 +40,6 @@ Use the `AskUserQuestion` tool with these two options:
 - Do NOT proceed to Path A or Path B until the user has answered
 - Your response after asking MUST end — no additional tool calls, no planning, no exploration
 - Once the user answers, complete ALL workspace setup steps (create, verify, report ready) before any other work begins
-- For worktrees: the shell cwd resets after every Bash command — you MUST use absolute worktree paths for ALL subsequent Bash commands, Read/Edit/Write/Glob/Grep tool calls, and Agent prompts. A plain `cd` does NOT persist.
 
 ---
 
@@ -55,35 +54,41 @@ git pull origin main
 
 #### A2. Get feature name
 
-Ask the user for a short name if they haven't provided one. Convention: `feature/<short-description>`.
+Ask the user for a short name if they haven't provided one. Convention: `fix-<description>` or `feature-<description>` (no slashes — this becomes a directory name).
 
-Good names: `feature/search-filters`, `feature/export-csv`, `feature/fix-scroll-offset`
+Good names: `fix-search-scroll`, `feature-export-csv`, `fix-context-bar`
 
-#### A3. Create the worktree
+#### A3. Create and enter the worktree
 
-Place the worktree as a sibling directory to the current repo:
+Use the `EnterWorktree` tool with the feature name:
 
 ```
-git worktree add ../claude-stats-<name> -b feature/<name>
+EnterWorktree(name: "feature-<name>")
 ```
 
-This creates `../claude-stats-<name>/` as an isolated checkout on the new branch.
+This creates the worktree at `.claude/worktrees/feature-<name>/`, creates a new branch `feature-<name>`, and **switches the session's working directory into the worktree** — which updates `workspace.current_dir` so the status line shows `⊔ feature-<name>`.
 
-#### A4. Set worktree as working directory
+#### A4. Note the worktree path
 
-**IMPORTANT: The shell cwd resets to the original repo after every Bash command. A plain `cd` does NOT persist.** You must use absolute paths for ALL subsequent operations in this session:
+After `EnterWorktree`, the absolute worktree path is:
 
-- **Bash commands**: Always prefix with `cd /Users/chrisjones/Documents/Projects/claude-stats-<name> &&`
-- **Read/Edit/Write tools**: Always use `/Users/chrisjones/Documents/Projects/claude-stats-<name>/` as the base path
-- **Glob/Grep tools**: Always set `path` to `/Users/chrisjones/Documents/Projects/claude-stats-<name>/`
-- **Agent tool prompts**: Always tell agents to work in `/Users/chrisjones/Documents/Projects/claude-stats-<name>/`
+```
+/Users/chrisjones/Documents/Projects/claude-stats/.claude/worktrees/feature-<name>/
+```
 
-Store the absolute worktree path and use it everywhere. Never use relative paths — they resolve to the original repo.
+**IMPORTANT: The shell cwd still resets between Bash commands.** You must use absolute paths for ALL subsequent operations:
+
+- **Bash commands**: Always prefix with `cd /Users/chrisjones/Documents/Projects/claude-stats/.claude/worktrees/feature-<name> &&`
+- **Read/Edit/Write tools**: Always use the full absolute path above
+- **Glob/Grep tools**: Always set `path` to the absolute worktree path
+- **Agent tool prompts**: Always tell agents to work in the absolute worktree path
+
+Store the absolute worktree path and use it everywhere.
 
 #### A5. Verify baseline in the worktree
 
 ```
-cd /Users/chrisjones/Documents/Projects/claude-stats-<name> && source ~/.cargo/env && cargo check
+cd /Users/chrisjones/Documents/Projects/claude-stats/.claude/worktrees/feature-<name> && source ~/.cargo/env && cargo check
 ```
 
 If this fails, the issue is in main — flag it before the user builds on a broken foundation.
@@ -91,11 +96,13 @@ If this fails, the issue is in main — flag it before the user builds on a brok
 #### A6. Report ready state
 
 Tell the user:
-- The absolute worktree path (`/Users/chrisjones/Documents/Projects/claude-stats-<name>/`)
-- The branch name (`feature/<name>`)
+- The worktree path and branch name
+- That the status line now shows `⊔ feature-<name>` confirming the session is in the worktree
 - That the baseline compiles cleanly
-- That all commands, reads, and edits will target the worktree path (not the original repo)
+- That all commands, reads, and edits will target the worktree path
 - When done, use `/cs-feature` to merge back
+
+**Resuming in a new session**: If the user closes Claude Code and resumes later, open Claude Code from inside the worktree directory (`/Users/chrisjones/Documents/Projects/claude-stats/.claude/worktrees/feature-<name>/`) so the session is scoped to the worktree and the status line reflects it.
 
 ---
 
@@ -146,7 +153,7 @@ Tell the user:
 
 Use this when the user says they're done with a feature and wants to merge back to main. Also use when the user says "finish", "merge", "land this", "done with this feature", or "wrap this up."
 
-**IMPORTANT: The shell cwd resets to the original repo after every command. Always use absolute paths to the worktree directory. Never use relative paths like `target/release/` — they'll resolve to the original repo's stale binary.**
+**IMPORTANT: The shell cwd resets to the original repo after every command. Always use absolute paths to the worktree directory.**
 
 ### 1. Detect context
 
@@ -155,30 +162,29 @@ git branch --show-current
 git worktree list
 ```
 
-Confirm we're on a feature branch (not main). If on main, ask what branch they meant.
-If the user is in a worktree directory, note the worktree path for cleanup later.
+Confirm we're on a feature branch (not main). Note the worktree path and branch name for later cleanup.
 
 ### 2. Commit uncommitted work
 
 Check for uncommitted changes:
 
 ```
-cd /absolute/path/to/workspace && git status
+cd /absolute/path/to/worktree && git status
 ```
 
 If there are uncommitted changes, stage and commit them:
 
 ```
-cd /absolute/path/to/workspace && git add -A && git commit -m "feat: <description of changes>"
+cd /absolute/path/to/worktree && git add -A && git commit -m "feat: <description of changes>"
 ```
 
-Do NOT proceed to build until all work is committed. This ensures the merge will include everything.
+Do NOT proceed to build until all work is committed.
 
 ### 3. Lint and build
 
 ```
-cd /absolute/path/to/workspace && cargo clippy 2>&1
-cd /absolute/path/to/workspace && cargo build --release
+cd /absolute/path/to/worktree && cargo clippy 2>&1
+cd /absolute/path/to/worktree && cargo build --release
 ```
 
 If clippy has warnings, fix them, commit the fix, and rebuild. If the build fails, stop — don't merge broken code into main.
@@ -186,63 +192,71 @@ If clippy has warnings, fix them, commit the fix, and rebuild. If the build fail
 ### 4. Install the binary
 
 ```
-cp /absolute/path/to/workspace/target/release/claude-stats ~/.local/bin/claude-stats
+cp /absolute/path/to/worktree/target/release/claude-stats ~/.local/bin/claude-stats
 ```
 
 Always use the full absolute path. Never rely on cwd.
 
 ### 5. Verify the binary works
 
-Run the installed binary to confirm it launches and shows the new changes:
-
 ```
 ~/.local/bin/claude-stats --help 2>&1 || echo "Binary runs"
 ```
 
-Also verify the binary contains the expected changes (e.g., `strings` check for new/removed text). Do NOT proceed to merge if the binary is stale or broken.
+Also verify the binary contains the expected changes. Do NOT proceed to merge if the binary is stale or broken.
 
 ### 6. Review what's changing
 
 ```
-cd /absolute/path/to/workspace && git log main..HEAD --oneline
-cd /absolute/path/to/workspace && git diff main..HEAD --stat
+cd /absolute/path/to/worktree && git log main..HEAD --oneline
+cd /absolute/path/to/worktree && git diff main..HEAD --stat
 ```
 
 Show the user the scope before merging.
 
-### 7. Merge to main
+### 7. Exit the worktree session (if using EnterWorktree)
 
-From the **original repo** (not the worktree):
+If this session was started with `EnterWorktree`, exit it first to return to the main repo context:
 
 ```
-cd /original/repo/path && git checkout main
-cd /original/repo/path && git pull origin main
-cd /original/repo/path && git merge feature/<name> --no-ff
+ExitWorktree(action: "keep")
+```
+
+This returns `workspace.current_dir` to the main repo. The worktree directory stays on disk — the branch is merged next.
+
+If the session was started in a new Claude Code window opened inside the worktree directory (resume case), skip this step and proceed using absolute paths to the worktree.
+
+### 8. Merge to main
+
+From the main repo:
+
+```
+cd /Users/chrisjones/Documents/Projects/claude-stats && git checkout main
+cd /Users/chrisjones/Documents/Projects/claude-stats && git pull origin main
+cd /Users/chrisjones/Documents/Projects/claude-stats && git merge feature-<name> --no-ff
 ```
 
 Use `--no-ff` to preserve the branch history as a merge commit. If there are conflicts, show them to the user and help resolve — don't force through.
 
-### 8. Rebuild and verify from main
-
-After merging, rebuild from main to confirm the merged code works:
+### 9. Rebuild and verify from main
 
 ```
-cd /original/repo/path && cargo build --release
-cp /original/repo/path/target/release/claude-stats ~/.local/bin/claude-stats
+cd /Users/chrisjones/Documents/Projects/claude-stats && cargo build --release
+cp /Users/chrisjones/Documents/Projects/claude-stats/target/release/claude-stats ~/.local/bin/claude-stats
 ```
 
 Run the binary again to verify. This catches merge issues that might not show up until after the merge.
 
-### 9. Clean up
+### 10. Clean up
 
-**If using a worktree**, remove it after merge:
+**If the worktree was created with `EnterWorktree`**, remove it:
 
 ```
-git worktree remove ../claude-stats-<name>
-git branch -d feature/<name>
+git worktree remove .claude/worktrees/feature-<name>
+git branch -d feature-<name>
 ```
 
-**If using a feature branch**, just delete the branch:
+**If using a manual feature branch**, just delete the branch:
 
 ```
 git branch -d feature/<name>
@@ -257,7 +271,7 @@ git branch
 
 Confirm the worktree/branch is gone and we're on a clean main.
 
-### 10. Hand off to ready-ship
+### 11. Hand off to ready-ship
 
 After merging, remind the user: "Feature merged to main. Use `/ready-ship` when you're ready to push to GitHub."
 
@@ -273,6 +287,8 @@ Don't push automatically — that's `/ready-ship`'s job.
 
 **Merge conflicts**: Show the conflicting files, explain the conflict, and help resolve. Never use `--force` or `-X theirs/ours` without explicit user approval.
 
-**User wants to abandon a feature branch**: Confirm, then `git checkout main && git branch -D feature/<name>`. If it's a worktree, also run `git worktree remove ../claude-stats-<name>`. This is destructive — make sure they mean it.
+**User wants to abandon a feature branch**: Confirm, then exit the worktree (`ExitWorktree action: "remove"` if in the same session, or `git worktree remove .claude/worktrees/feature-<name> && git branch -D feature-<name>` if resuming). This is destructive — make sure they mean it.
 
 **User asks "what worktrees do I have?"**: Run `git worktree list` and show them.
+
+**Resuming a worktree in a new session**: Open Claude Code from inside the worktree directory (`.claude/worktrees/feature-<name>/`). The session will be scoped to that directory, `workspace.current_dir` will be the worktree path, and the status line will show `⊔ feature-<name>` automatically.
