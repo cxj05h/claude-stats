@@ -40,14 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         terminal.draw(|f| ui::draw(f, &mut app))?;
 
-        // Store chat area position for click detection
-        if app.mode == AppMode::Detail {
-            let h = terminal.size()?.height;
-            let is_short = h < 40;
-            let info_h: u16 = if is_short { 10 } else { 12 };
-            let ctx_h: u16 = if is_short { 8 } else { 14 };
-            app.chat_area_top = 2 + info_h + ctx_h; // header + info + context
-        }
+        // chat_area_top is set inside draw_claude_animation() during draw
 
         // Drain ALL queued events — prevents scroll chunking
         while event::poll(std::time::Duration::from_millis(50))? {
@@ -229,6 +222,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             KeyCode::Right => {
                                 app.move_cursor(1);
                                 app.detail_scroll = 0;
+                            }
+                            KeyCode::Char('m') => {
+                                // Toggle mouse capture for text selection
+                                app.mouse_captured = !app.mouse_captured;
+                                if app.mouse_captured {
+                                    execute!(
+                                        terminal.backend_mut(),
+                                        crossterm::event::EnableMouseCapture
+                                    )?;
+                                } else {
+                                    execute!(
+                                        terminal.backend_mut(),
+                                        crossterm::event::DisableMouseCapture
+                                    )?;
+                                }
                             }
                             _ => {}
                         },
