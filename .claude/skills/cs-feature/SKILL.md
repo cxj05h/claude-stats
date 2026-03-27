@@ -40,7 +40,7 @@ Use the `AskUserQuestion` tool with these two options:
 - Do NOT proceed to Path A or Path B until the user has answered
 - Your response after asking MUST end — no additional tool calls, no planning, no exploration
 - Once the user answers, complete ALL workspace setup steps (create, verify, report ready) before any other work begins
-- For worktrees: you MUST `cd` into the worktree directory so all subsequent work happens there
+- For worktrees: the shell cwd resets after every Bash command — you MUST use absolute worktree paths for ALL subsequent Bash commands, Read/Edit/Write/Glob/Grep tool calls, and Agent prompts. A plain `cd` does NOT persist.
 
 ---
 
@@ -69,18 +69,21 @@ git worktree add ../claude-stats-<name> -b feature/<name>
 
 This creates `../claude-stats-<name>/` as an isolated checkout on the new branch.
 
-#### A4. cd into the worktree
+#### A4. Set worktree as working directory
 
-**You MUST change into the worktree directory so all subsequent commands, edits, and file reads happen there — not in the original repo.**
+**IMPORTANT: The shell cwd resets to the original repo after every Bash command. A plain `cd` does NOT persist.** You must use absolute paths for ALL subsequent operations in this session:
 
-```
-cd ../claude-stats-<name>
-```
+- **Bash commands**: Always prefix with `cd /Users/chrisjones/Documents/Projects/claude-stats-<name> &&`
+- **Read/Edit/Write tools**: Always use `/Users/chrisjones/Documents/Projects/claude-stats-<name>/` as the base path
+- **Glob/Grep tools**: Always set `path` to `/Users/chrisjones/Documents/Projects/claude-stats-<name>/`
+- **Agent tool prompts**: Always tell agents to work in `/Users/chrisjones/Documents/Projects/claude-stats-<name>/`
+
+Store the absolute worktree path and use it everywhere. Never use relative paths — they resolve to the original repo.
 
 #### A5. Verify baseline in the worktree
 
 ```
-cargo check
+cd /Users/chrisjones/Documents/Projects/claude-stats-<name> && source ~/.cargo/env && cargo check
 ```
 
 If this fails, the issue is in main — flag it before the user builds on a broken foundation.
@@ -88,10 +91,10 @@ If this fails, the issue is in main — flag it before the user builds on a brok
 #### A6. Report ready state
 
 Tell the user:
-- The worktree path (`../claude-stats-<name>/`)
+- The absolute worktree path (`/Users/chrisjones/Documents/Projects/claude-stats-<name>/`)
 - The branch name (`feature/<name>`)
 - That the baseline compiles cleanly
-- That this session is now working from the worktree directory
+- That all commands, reads, and edits will target the worktree path (not the original repo)
 - When done, use `/cs-feature` to merge back
 
 ---
