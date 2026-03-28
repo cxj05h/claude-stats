@@ -4,6 +4,14 @@ A lightweight session tracking manager for Claude Code. Browse, search, and moni
 
 ![Rust](https://img.shields.io/badge/Rust-ratatui-orange)
 
+![sessions](assets/sessions.png)
+![stats-dashboard](assets/stats-dashboard.png)
+![indicators](assets/indicators.png)
+![search](assets/search.png)
+![search-next](assets/search-next.png)
+![fullscreen](assets/fullscreen.png)
+![expand-code-changes](assets/expand-code-changes.png)
+
 ## Why claude-stats
 
 Claude Code sessions pile up fast. You run dozens of conversations across projects, switch models mid-session, spawn agents, burn through context windows -- and there's no single place to see what happened, how much you used, or where you left off.
