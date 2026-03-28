@@ -22,6 +22,15 @@ Think of it as the missing management layer: a way to stay on top of your Claude
 
 ## What You Can Do
 
+### See which sessions need attention
+
+Two indicators appear next to session titles when action is needed:
+
+- **👋** -- Claude responded and is waiting for your input. Auto-clears after 1 hour or when you view the session details.
+- **⏳** -- A permission prompt, question, or multiselect is waiting for your approval. The session title turns red. Clears automatically when you respond in Claude Code, or when you view the session details.
+
+Both indicators appear on the sessions screen and the session details page. Press `X` to clear the indicator on the selected row, or `C` to clear all indicators at once. Agent sessions never show indicators.
+
 ### Find any session instantly
 
 Start typing and claude-stats fuzzy-searches across session titles, project paths, and model names. Results filter in real time. No scrolling through history, no grepping JSONL files -- just type a few characters and the session you want floats to the top.
@@ -55,15 +64,6 @@ Sessions that switched models show the full timeline (e.g., Opus 4.5 -> Sonnet 4
 ### Search within chat messages
 
 Press `/` in the detail view to search inside the conversation. Matches are highlighted in yellow, the current match in orange. Use `n`/`N` to jump between results. The viewport auto-scrolls to center each match.
-
-### See which sessions need attention
-
-Two indicators appear next to session titles when action is needed:
-
-- **👋** -- Claude responded and is waiting for your input. Auto-clears after 1 hour or when you view the session details.
-- **⏳** -- A permission prompt, question, or multiselect is waiting for your approval. The session title turns red. Clears automatically when you respond in Claude Code, or when you view the session details.
-
-Both indicators appear on the sessions screen and the session details page. Press `X` to clear the indicator on the selected row, or `C` to clear all indicators at once. Agent sessions never show indicators.
 
 ### Spot live sessions
 
@@ -157,6 +157,12 @@ curl -fsSL https://raw.githubusercontent.com/cxj05h/claude-stats/main/install.sh
 ```
 
 Installs to `~/.local/bin/claude-stats`. Make sure that directory is in your `PATH`.
+
+Optionally add a short alias:
+
+```bash
+alias cs='claude-stats'
+```
 
 ### Build from source
 
