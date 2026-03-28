@@ -162,7 +162,7 @@ pub struct App {
     pub chat_inner_h: usize,              // visible chat height (set by draw)
     pub mouse_captured: bool,             // whether mouse events are captured (vs terminal selection)
     pub chat_max_scroll: usize,           // max valid detail_scroll (set by draw)
-    pub seen_sessions: std::collections::HashSet<String>, // sessions where user viewed detail (clears indicator)
+    pub seen_sessions: std::collections::HashMap<String, usize>, // session_id → turns at time of dismissal
 }
 
 impl App {
@@ -195,7 +195,7 @@ impl App {
             chat_total_lines: 0,
             chat_inner_h: 0,
             chat_max_scroll: 0,
-            seen_sessions: std::collections::HashSet::new(),
+            seen_sessions: std::collections::HashMap::new(),
         }
     }
 
@@ -258,18 +258,18 @@ impl App {
 
         self.store = SessionStore::load();
 
-        // Clean up seen_sessions: remove entries for sessions no longer waiting
-        // so future indicators can reappear
-        let no_longer_waiting: Vec<String> = self.seen_sessions.iter()
-            .filter(|id| {
+        // Clean up seen_sessions: remove entries where turns have changed
+        // (new activity means indicator should be eligible to reappear)
+        let stale: Vec<String> = self.seen_sessions.iter()
+            .filter(|(id, &dismissed_turns)| {
                 self.store.sessions.iter()
                     .find(|s| &s.id == *id)
-                    .map(|s| s.waiting_state == WaitingState::None)
+                    .map(|s| s.turns != dismissed_turns)
                     .unwrap_or(true) // session gone = remove
             })
-            .cloned()
+            .map(|(id, _)| id.clone())
             .collect();
-        for id in no_longer_waiting {
+        for id in stale {
             self.seen_sessions.remove(&id);
         }
 
@@ -389,7 +389,10 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             };
 
             // Determine waiting indicator
-            let indicator = if app.seen_sessions.contains(&s.id) {
+            let is_dismissed = app.seen_sessions.get(&s.id)
+                .map(|&dismissed_turns| dismissed_turns == s.turns)
+                .unwrap_or(false);
+            let indicator = if is_dismissed {
                 None
             } else {
                 match &s.waiting_state {
@@ -423,7 +426,7 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 }
             };
 
-            let is_permission_waiting = !app.seen_sessions.contains(&s.id)
+            let is_permission_waiting = !is_dismissed
                 && s.waiting_state == WaitingState::WaitingForPermission;
 
             let title_style = if is_selected {

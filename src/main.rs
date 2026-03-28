@@ -88,19 +88,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if !app.filtered_indices.is_empty() {
                                     // Mark session as seen to dismiss waiting indicator
                                     if let Some(s) = app.selected_session() {
-                                        app.seen_sessions.insert(s.id.clone());
+                                        app.seen_sessions.insert(s.id.clone(), s.turns);
                                     }
                                     app.mode = AppMode::Detail;
                                 }
                             }
                             KeyCode::Char('X') => {
                                 // Clear all waiting indicators
-                                let ids: Vec<String> = app.filtered_indices.iter()
+                                let entries: Vec<(String, usize)> = app.filtered_indices.iter()
                                     .filter_map(|&idx| app.store.sessions.get(idx))
-                                    .map(|s| s.id.clone())
+                                    .map(|s| (s.id.clone(), s.turns))
                                     .collect();
-                                for id in ids {
-                                    app.seen_sessions.insert(id);
+                                for (id, turns) in entries {
+                                    app.seen_sessions.insert(id, turns);
                                 }
                             }
                             KeyCode::Char(c) => {
@@ -243,14 +243,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.move_cursor(-1);
                                 app.detail_scroll = 0;
                                 if let Some(s) = app.selected_session() {
-                                    app.seen_sessions.insert(s.id.clone());
+                                    app.seen_sessions.insert(s.id.clone(), s.turns);
                                 }
                             }
                             KeyCode::Right => {
                                 app.move_cursor(1);
                                 app.detail_scroll = 0;
                                 if let Some(s) = app.selected_session() {
-                                    app.seen_sessions.insert(s.id.clone());
+                                    app.seen_sessions.insert(s.id.clone(), s.turns);
                                 }
                             }
                             KeyCode::Char('m') => {
