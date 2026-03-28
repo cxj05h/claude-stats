@@ -1,3 +1,4 @@
+mod log;
 mod session;
 mod terminal;
 mod ui;
@@ -76,8 +77,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let quit_signal = Arc::new(AtomicBool::new(false));
     signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&quit_signal))?;
 
+    log::init();
+    cs_log!("terminal size: {}x{}", crossterm::terminal::size().map(|s| s.0).unwrap_or(0), crossterm::terminal::size().map(|s| s.1).unwrap_or(0));
+
     // Load sessions
     let store = SessionStore::load();
+    cs_log!("loaded {} sessions", store.sessions.len());
     let mut app = App::new(store);
 
     // Main loop — fast refresh every ~1s, full reload every ~5s
@@ -117,6 +122,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             match &evt {
                 Event::Key(key) => {
+                    let mode_str = match app.mode { AppMode::List => "List", AppMode::Detail => "Detail" };
+                    let mods = if key.modifiers.is_empty() { String::new() } else { format!("{:?}+", key.modifiers) };
+                    cs_log!("key: {}{:?} mode={} tab={} archive={} sel={}", mods, key.code, mode_str, app.list_info_tab, app.viewing_archive, app.selected_ids.len());
                     match app.mode {
                         AppMode::List => match key.code {
                             KeyCode::Char('q') if app.search_query.is_empty() && !app.viewing_archive => break,
@@ -166,6 +174,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             KeyCode::Enter => {
                                 if !app.filtered_indices.is_empty() {
+                                    let title = app.selected_session().map(|s| s.title.clone()).unwrap_or_default();
+                                    cs_log!("mode: List → Detail ({})", title);
                                     app.mode = AppMode::Detail;
                                 }
                             }
@@ -189,28 +199,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 focus_or_open_session(&mut app);
                             }
                             KeyCode::Char('A') if app.list_info_tab == 3 && !app.viewing_archive => {
-                                if !app.selected_ids.is_empty() {
+                                let count = if !app.selected_ids.is_empty() {
+                                    let c = app.selected_ids.len();
                                     for id in app.selected_ids.drain() {
                                         app.archived_ids.insert(id);
                                     }
+                                    c
                                 } else if let Some(s) = app.selected_session() {
                                     app.archived_ids.insert(s.id.clone());
-                                }
+                                    1
+                                } else { 0 };
+                                cs_log!("archive: added {} sessions, total={}", count, app.archived_ids.len());
                                 ui::save_archive(&app.archived_ids);
                                 app.update_filtered();
                             }
                             KeyCode::Char('V') if app.list_info_tab == 3 && !app.viewing_archive => {
+                                cs_log!("archive: entering view ({} archived)", app.archived_ids.len());
                                 app.viewing_archive = true;
                                 app.update_filtered();
                             }
                             KeyCode::Char('R') if app.viewing_archive => {
-                                if !app.selected_ids.is_empty() {
+                                let count = if !app.selected_ids.is_empty() {
+                                    let c = app.selected_ids.len();
                                     for id in app.selected_ids.drain() {
                                         app.archived_ids.remove(&id);
                                     }
+                                    c
                                 } else if let Some(s) = app.selected_session() {
                                     app.archived_ids.remove(&s.id.clone());
-                                }
+                                    1
+                                } else { 0 };
+                                cs_log!("archive: removed {} sessions, total={}", count, app.archived_ids.len());
                                 ui::save_archive(&app.archived_ids);
                                 app.update_filtered();
                             }
@@ -261,6 +280,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     if let Some(s) = app.selected_session() {
                                         app.seen_sessions.insert(s.id.clone(), s.turns);
                                     }
+                                    cs_log!("mode: Detail → List");
                                     app.mode = AppMode::List;
                                     app.detail_scroll = 0;
                                 }

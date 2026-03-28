@@ -27,6 +27,10 @@ Two indicators show up next to session titles when something is waiting:
 
 Press `X` to clear the indicator on a row, or `C` to clear all at once. Agent sessions never show indicators.
 
+### Archive sessions you're done with
+
+Navigate to the **Archive** tab (`←`/`→`) and press `A` to hide a session from the main list. Use `Shift+↑`/`↓` to multi-select, then `A` to archive in bulk. Press `V` to view archived sessions, `R` to unarchive. Archive state persists across restarts (`~/.claude/stats-archive.json`).
+
 #### Getting back to a waiting session
 
 **iTerm2 / tmux:** Press `K` and claude-stats focuses the terminal tab where the session is already running — instant, no new process.
@@ -82,7 +86,7 @@ Launch `claude-stats` and you'll see your 40 most recent sessions:
 | When | Time since last activity |
 | Duration | Total session time |
 
-The info bar below cycles with `Left`/`Right`: **Branch**, **Path**, **Models**.
+The info bar below cycles with `Left`/`Right`: **Branch**, **Path**, **Models**, **Archive**.
 
 ### Detail view
 
@@ -106,14 +110,18 @@ From the detail view: `c` opens in a new terminal tab (claude-stats stays runnin
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Navigate sessions |
+| `Shift+↑` / `↓` | Multi-select sessions |
 | `←` / `→` | Cycle info tabs |
 | `K` | Focus running tab (or open new) |
 | `X` | Clear indicator on row |
 | `C` | Clear all indicators |
+| `A` | Archive selected (on Archive tab) |
+| `V` | View archive (on Archive tab) |
+| `R` | Unarchive selected (in archive view) |
 | `Enter` | Open detail view |
 | Type | Fuzzy search |
 | `Backspace` | Delete search character |
-| `Esc` | Clear search / quit |
+| `Esc` | Clear selection / search / quit |
 | `q` | Quit |
 
 ### Detail view
@@ -174,6 +182,8 @@ Reads directly from Claude Code's local files — no API calls:
 - `~/.claude/projects/` — session JSONL files
 - `~/.claude/stats-cache.json` — weekly token stats
 - `~/.claude/stats-config.json` — plan type and terminal config
+- `~/.claude/stats-archive.json` — archived session IDs
+- `~/.claude/stats.log` — debug log (rotated daily)
 - `~/.claude/settings.json` — effort level
 
 Works with both subscription (Pro/Max) and API key auth.
