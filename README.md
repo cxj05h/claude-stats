@@ -8,7 +8,7 @@ A lightweight session tracking manager for Claude Code. Browse, search, and moni
 
 Claude Code sessions pile up fast. You run dozens of conversations across projects, switch models mid-session, spawn agents, burn through context windows -- and there's no single place to see what happened, how much you used, or where you left off.
 
-claude-stats gives you that visibility. It reads Claude Code's local session files and renders them in a fast, keyboard-driven TUI. No API calls, no setup, no config. Just run `claude-stats` and you're looking at your 30 most recent sessions with full token breakdowns, context usage, model history, and searchable chat logs.
+claude-stats gives you that visibility. It reads Claude Code's local session files and renders them in a fast, keyboard-driven TUI. No API calls, no setup, no config. Just run `claude-stats` and you're looking at your 40 most recent sessions with full token breakdowns, context usage, model history, and searchable chat logs.
 
 Think of it as the missing management layer: a way to stay on top of your Claude Code usage without leaving the terminal.
 
@@ -48,15 +48,24 @@ Sessions that switched models show the full timeline (e.g., Opus 4.5 -> Sonnet 4
 
 Press `/` in the detail view to search inside the conversation. Matches are highlighted in yellow, the current match in orange. Use `n`/`N` to jump between results. The viewport auto-scrolls to center each match.
 
+### See which sessions need attention
+
+Two indicators appear next to session titles when action is needed:
+
+- **👋** -- Claude responded and is waiting for your input. Auto-clears after 1 hour or when you view the session details.
+- **⏳** -- A permission prompt, question, or multiselect is waiting for your approval. The session title turns red. Clears automatically when you respond in Claude Code, or when you view the session details.
+
+Both indicators appear on the sessions screen and the session details page. Press `X` (shift) on the sessions screen to clear all indicators at once. Agent sessions never show indicators.
+
 ### Spot live sessions
 
-The currently active session gets a green `●` indicator and highlighted row in the list. The session list auto-refreshes every ~3 seconds, so you can keep claude-stats open in a side terminal while working and watch activity in real time.
+The currently active session gets a green `●` indicator and highlighted row in the list. Waiting state updates refresh every ~1 second (incremental file reads), with a full session reload every ~5 seconds.
 
 ## How to Use
 
 ### Session list
 
-Launch `claude-stats` and you'll see your 30 most recent sessions in a table:
+Launch `claude-stats` and you'll see your 40 most recent sessions in a table:
 
 | Column | Shows |
 |--------|-------|
@@ -71,7 +80,7 @@ Launch `claude-stats` and you'll see your 30 most recent sessions in a table:
 
 Navigate with `Up`/`Down`. The info bar below the table has three tabs you can cycle with `Left`/`Right`:
 
-- **MCPs** -- all MCP servers used with call counts
+- **Branch** -- git branch or worktree for the session
 - **Path** -- working directory where the session ran
 - **Models** -- model transition timeline
 
@@ -97,7 +106,8 @@ From the detail view, press `c` to open that session in a new terminal tab. clau
 | Key | Action |
 |-----|--------|
 | `Up` / `Down` | Navigate sessions |
-| `Left` / `Right` | Cycle info tabs (MCPs / Path / Models) |
+| `Left` / `Right` | Cycle info tabs (Branch / Path / Models) |
+| `X` | Clear all waiting indicators |
 | `Enter` | Open session detail |
 | Type anything | Fuzzy search sessions |
 | `Backspace` | Delete search character |

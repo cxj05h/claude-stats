@@ -188,7 +188,7 @@ Tell the user:
 
 Use this when the user is done with a feature and wants to merge back to main. Trigger phrases: "finalize", "finish", "merge", "land this", "done with this feature", "wrap this up."
 
-**This mode commits, merges, and cleans up — it does NOT build, install, or push. Shipping is a separate step (`/ready-ship`).**
+**This mode commits, merges, cleans up, and rebuilds the binary so the installed version matches main. It does NOT push — shipping to GitHub is a separate step (`/ready-ship`).**
 
 **CRITICAL: The shell cwd resets after every command. Always use absolute paths.**
 
@@ -286,11 +286,30 @@ git branch
 
 Confirm the worktree/branch is gone and we're on a clean main.
 
-### 8. Done
+### 8. Rebuild and install
 
-Tell the user: "Feature merged and branch cleaned up. Use `/ready-ship` when you're ready to build, install, and push to GitHub."
+The merge may have changed code (conflict resolution, rebase). Always rebuild from main so the installed binary matches what was just merged:
 
-Do NOT build, install, or push — that's `/ready-ship`'s job.
+```bash
+cd /Users/chrisjones/Documents/Projects/claude-stats && source ~/.cargo/env && cargo build --release
+```
+
+If the build fails, stop and fix — never leave a broken binary installed after a merge.
+
+Then install and codesign (macOS kills unsigned replaced binaries):
+
+```bash
+cp target/release/claude-stats ~/.local/bin/claude-stats
+codesign --sign - ~/.local/bin/claude-stats
+ln -sf ~/.local/bin/claude-stats ~/.local/bin/cs
+ls -lh ~/.local/bin/claude-stats
+```
+
+### 9. Done
+
+Tell the user: "Feature merged, rebuilt, and installed. Use `/ready-ship` when you're ready to push to GitHub."
+
+Do NOT push — that's `/ready-ship`'s job.
 
 ---
 
