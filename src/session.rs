@@ -194,6 +194,37 @@ pub fn fmt_ago(dt: &DateTime<Utc>) -> String {
     }
 }
 
+/// Extract a human-readable name from a named agent ID.
+/// Named agents have filenames like "agent-<name>-<hex_id>.jsonl".
+/// Returns None for unnamed agents ("agent-<hex_id>").
+fn extract_agent_name(id: &str) -> Option<String> {
+    let rest = id.strip_prefix("agent-")?;
+    // Split on last '-' to separate potential name from hex session id
+    let last_dash = rest.rfind('-')?;
+    let potential_name = &rest[..last_dash];
+    let potential_hex = &rest[last_dash + 1..];
+    // Hex part must be all hex digits; name must contain at least one non-hex char
+    let is_hex = !potential_hex.is_empty() && potential_hex.chars().all(|c| c.is_ascii_hexdigit());
+    let has_non_hex = potential_name.chars().any(|c| !c.is_ascii_hexdigit());
+    if is_hex && has_non_hex {
+        // Convert underscores/hyphens to spaces, title-case each word
+        let name = potential_name.replace(['_', '-'], " ");
+        let titled = name.split_whitespace()
+            .map(|w| {
+                let mut chars = w.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().to_string() + chars.as_str(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        Some(titled)
+    } else {
+        None
+    }
+}
+
 fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Session> {
     let content = fs::read_to_string(path).ok()?;
     let id = path.file_stem()?.to_str()?.to_string();
@@ -464,7 +495,11 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
 
     // Default title
     if session.title.is_empty() {
-        session.title = session.id.chars().take(14).collect();
+        if let Some(name) = extract_agent_name(&session.id) {
+            session.title = name;
+        } else {
+            session.title = session.id.chars().take(14).collect();
+        }
     }
 
     // Clean cwd
