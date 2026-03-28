@@ -242,10 +242,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             KeyCode::Left => {
                                 app.move_cursor(-1);
                                 app.detail_scroll = 0;
+                                if let Some(s) = app.selected_session() {
+                                    app.seen_sessions.insert(s.id.clone());
+                                }
                             }
                             KeyCode::Right => {
                                 app.move_cursor(1);
                                 app.detail_scroll = 0;
+                                if let Some(s) = app.selected_session() {
+                                    app.seen_sessions.insert(s.id.clone());
+                                }
                             }
                             KeyCode::Char('m') => {
                                 // Toggle mouse capture for text selection
