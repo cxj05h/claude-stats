@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use crate::session::{fmt_ago, fmt_duration, fmt_tokens, friendly_mcp_name, short_model, Session, SessionStore, WaitingState};
 
 use crate::session::context_window_for_model;
+use crate::terminal::ProcessInfo;
 
 // Theme colors that work with both dark (navy bg) and light (warm gray bg) iTerm themes
 const LABEL: Color = Color::Rgb(140, 140, 170);   // soft lavender-gray for labels
@@ -164,6 +165,8 @@ pub struct App {
     pub chat_max_scroll: usize,           // max valid detail_scroll (set by draw)
     pub seen_sessions: std::collections::HashMap<String, usize>, // session_id → turns at time of dismissal
     pub status_message: Option<(String, std::time::Instant)>, // transient footer message
+    pub process_map: std::collections::HashMap<String, ProcessInfo>, // session_id → running process info
+    pub our_tty: Option<String>, // TTY of this claude-stats process (for self-detection)
 }
 
 impl App {
@@ -198,6 +201,8 @@ impl App {
             chat_max_scroll: 0,
             seen_sessions: std::collections::HashMap::new(),
             status_message: None,
+            process_map: std::collections::HashMap::new(),
+            our_tty: crate::terminal::current_tty(),
         }
     }
 
@@ -400,10 +405,14 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             let is_selected = i == app.cursor;
             let is_live = current_sid.map(|c| c == s.id).unwrap_or(false);
 
+            let is_agent = s.parent_session_id.is_some();
+            let is_running = !is_agent && app.process_map.contains_key(&s.id);
             let marker = if is_selected {
                 "▶"
             } else if is_live {
                 "●"
+            } else if is_running {
+                "◆"
             } else {
                 " "
             };
@@ -411,11 +420,12 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 Style::default().fg(FOOTER_KEY).bold()
             } else if is_live {
                 Style::default().fg(Color::Green)
+            } else if is_running {
+                Style::default().fg(Color::Rgb(100, 180, 220))
             } else {
                 Style::default()
             };
 
-            let is_agent = s.parent_session_id.is_some();
             let raw_title = if is_agent {
                 format!("⤷ {}", s.title)
             } else {
@@ -607,12 +617,16 @@ fn draw_list(f: &mut Frame, app: &mut App) {
         Span::styled("inspect  ", Style::default().fg(LABEL)),
         Span::styled("type ", Style::default().fg(FOOTER_KEY).bold()),
         Span::styled("search  ", Style::default().fg(LABEL)),
+        Span::styled("K ", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled("focus  ", Style::default().fg(LABEL)),
         Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
         Span::styled("quit  ", Style::default().fg(LABEL)),
-        Span::styled("X ", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("clear  ", Style::default().fg(LABEL)),
+        Span::styled("C/X ", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled("clearAll/1  ", Style::default().fg(LABEL)),
         Span::styled("● ", Style::default().fg(Color::Green)),
-        Span::styled("active", Style::default().fg(LABEL)),
+        Span::styled("active ", Style::default().fg(LABEL)),
+        Span::styled("◆ ", Style::default().fg(Color::Rgb(100, 180, 220))),
+        Span::styled("running", Style::default().fg(LABEL)),
     ]));
     f.render_widget(footer, chunks[4]);
 }
@@ -1039,6 +1053,8 @@ fn detail_footer_default(app: &App) -> Paragraph<'static> {
         Span::styled("scroll ", Style::default().fg(LABEL)),
         Span::styled("f", Style::default().fg(FOOTER_KEY).bold()),
         Span::styled("ullscreen ", Style::default().fg(LABEL)),
+        Span::styled("K", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled(" focus ", Style::default().fg(LABEL)),
         Span::styled("c", Style::default().fg(FOOTER_KEY).bold()),
         Span::styled(" tab ", Style::default().fg(LABEL)),
         Span::styled("C", Style::default().fg(FOOTER_KEY).bold()),

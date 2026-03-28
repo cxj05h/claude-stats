@@ -15,6 +15,39 @@ use std::sync::Arc;
 use session::SessionStore;
 use ui::{App, AppMode};
 
+/// Try to focus the terminal tab running a session, or open a new tab as fallback.
+fn focus_or_open_session(app: &mut App) {
+    let Some(s) = app.selected_session() else { return };
+    let sid = s.id.clone();
+    let cwd = s.cwd.replace("~", &dirs::home_dir().unwrap_or_default().to_string_lossy());
+
+    if let Some(info) = app.process_map.get(&sid) {
+        // Check if this session is running in our own terminal tab
+        if let Some(ref our_tty) = app.our_tty {
+            if info.tty == *our_tty {
+                app.status_message = Some(("Session is in this terminal".into(), std::time::Instant::now()));
+                return;
+            }
+        }
+        match crate::terminal::focus_tab_by_tty(&info.tty) {
+            Ok(()) => {
+                app.status_message = Some(("Focused session tab".into(), std::time::Instant::now()));
+            }
+            Err(_) => {
+                match crate::terminal::open_in_new_tab(&sid, &cwd) {
+                    Ok(()) => app.status_message = Some(("Opened in new tab".into(), std::time::Instant::now())),
+                    Err(e) => app.status_message = Some((e, std::time::Instant::now())),
+                }
+            }
+        }
+    } else {
+        match crate::terminal::open_in_new_tab(&sid, &cwd) {
+            Ok(()) => app.status_message = Some(("Not running — opened new tab".into(), std::time::Instant::now())),
+            Err(e) => app.status_message = Some((e, std::time::Instant::now())),
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // CLI arg: --config-terminal
     let args: Vec<String> = std::env::args().collect();
@@ -55,6 +88,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if app.tick.is_multiple_of(50) {
             // Full reload every ~5s: re-scan files, pick up new/removed sessions
             app.reload_sessions();
+            let session_triples: Vec<(String, String, i64)> = app.store.sessions.iter()
+                .map(|s| (s.id.clone(), s.file_path.clone(), s.end_ts.map(|t| t.timestamp()).unwrap_or(0)))
+                .collect();
+            app.process_map = terminal::scan_claude_processes(&session_triples);
         } else if app.tick.is_multiple_of(10) {
             // Fast refresh every ~1s: only read new bytes for waiting state
             app.fast_refresh();
@@ -102,7 +139,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             KeyCode::Char('X') => {
-                                // Clear all waiting indicators
+                                // Clear indicator on selected row
+                                if let Some(s) = app.selected_session() {
+                                    app.seen_sessions.insert(s.id.clone(), s.turns);
+                                }
+                            }
+                            KeyCode::Char('C') => {
+                                // Clear all indicators
                                 let entries: Vec<(String, usize)> = app.filtered_indices.iter()
                                     .filter_map(|&idx| app.store.sessions.get(idx))
                                     .map(|s| (s.id.clone(), s.turns))
@@ -110,6 +153,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 for (id, turns) in entries {
                                     app.seen_sessions.insert(id, turns);
                                 }
+                            }
+                            KeyCode::Char('K') if app.search_query.is_empty() => {
+                                focus_or_open_session(&mut app);
                             }
                             KeyCode::Char(c) => {
                                 app.search_query.push(c);
@@ -201,6 +247,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         }
                                     }
                                 }
+                            }
+                            KeyCode::Char('K') => {
+                                focus_or_open_session(&mut app);
                             }
                             KeyCode::Char('C') => {
                                 // Replace this process with claude --resume (legacy behavior)

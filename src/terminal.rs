@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::process::Command;
 
@@ -161,6 +162,199 @@ end tell"#,
         TerminalKind::Unknown => {
             Err("Terminal not detected. Press C to open here, or run `claude-stats --config-terminal`.".into())
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessInfo {
+    #[allow(dead_code)]
+    pub pid: u32,
+    pub tty: String,
+}
+
+/// Get the TTY of the current process (for self-detection).
+pub fn current_tty() -> Option<String> {
+    let output = Command::new("ps")
+        .args(["-o", "tty=", "-p", &std::process::id().to_string()])
+        .output()
+        .ok()?;
+    let tty = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if tty.is_empty() || tty == "??" { None } else { Some(tty) }
+}
+
+/// Scan running claude processes and map session_id → ProcessInfo.
+///
+/// Two strategies:
+/// 1. `--resume <id>` in args → direct session ID extraction
+/// 2. Bare `claude` processes → match CWD to session file paths
+///
+/// The `sessions` parameter provides known sessions for CWD matching:
+/// `(session_id, file_path, end_ts_epoch)` sorted most-recent-first.
+pub fn scan_claude_processes(sessions: &[(String, String, i64)]) -> HashMap<String, ProcessInfo> {
+    let mut map = HashMap::new();
+
+    // Step 1: Find all `claude` processes with a TTY
+    let output = match Command::new("ps")
+        .args(["-eo", "pid,tty,comm,args"])
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return map,
+    };
+
+    let mut claude_pids: Vec<(u32, String, String)> = Vec::new(); // (pid, tty, args)
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines().skip(1) {
+        // Split on whitespace runs (handles variable padding from ps)
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        if tokens.len() < 4 {
+            continue;
+        }
+        let pid: u32 = match tokens[0].parse() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let tty = tokens[1];
+        let comm = tokens[2];
+        // args is everything from token 3 onward (rejoined)
+        let args = tokens[3..].join(" ");
+
+        // Only actual claude processes with a real TTY
+        if comm != "claude" || tty == "??" || tty == "-" {
+            continue;
+        }
+
+        // Strategy 1: --resume <id> in args
+        if let Some(pos) = args.find("--resume") {
+            let after = &args[pos + "--resume".len()..].trim_start();
+            if let Some(session_id) = after.split_whitespace().next() {
+                if !session_id.is_empty() {
+                    map.insert(session_id.to_string(), ProcessInfo { pid, tty: tty.to_string() });
+                    continue;
+                }
+            }
+        }
+
+        // Collect for CWD-based matching
+        claude_pids.push((pid, tty.to_string(), args));
+    }
+
+    // Step 2: For bare `claude` processes, get CWDs via lsof
+    if !claude_pids.is_empty() && !sessions.is_empty() {
+        let pid_args: Vec<String> = claude_pids.iter().map(|(pid, _, _)| format!("-p{}", pid)).collect();
+        let mut lsof_args = vec!["-d".to_string(), "cwd".to_string(), "-Fn".to_string()];
+        lsof_args.extend(pid_args);
+
+        if let Ok(output) = Command::new("lsof").args(&lsof_args).output() {
+            let lsof_out = String::from_utf8_lossy(&output.stdout);
+            let mut current_pid: Option<u32> = None;
+
+            for line in lsof_out.lines() {
+                if let Some(pid_str) = line.strip_prefix('p') {
+                    current_pid = pid_str.parse().ok();
+                } else if let Some(path) = line.strip_prefix('n') {
+                    if let Some(pid) = current_pid {
+                        // Find the matching claude_pid entry
+                        if let Some((_, tty, _)) = claude_pids.iter().find(|(p, _, _)| *p == pid) {
+                            // Match CWD to the most recent session from that project.
+                            // Sessions are sorted most-recent-first, so first match wins.
+                            // Strip .claude/worktrees/<name> suffix — worktree CWDs
+                            // won't match the project-root-based session paths otherwise.
+                            let normalized = if let Some(idx) = path.find("/.claude/worktrees/") {
+                                &path[..idx]
+                            } else {
+                                path
+                            };
+                            let encoded_cwd = normalized.replace('/', "-");
+                            if let Some((session_id, _, _)) = sessions.iter()
+                                .find(|(sid, fp, _)| fp.contains(&encoded_cwd) && !map.contains_key(sid))
+                            {
+                                map.insert(session_id.clone(), ProcessInfo { pid, tty: tty.clone() });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    map
+}
+
+/// Focus an existing iTerm2 tab by matching its TTY.
+/// Returns Ok if the tab was found and focused, Err otherwise.
+pub fn focus_tab_by_tty(tty: &str) -> Result<(), String> {
+    let kind = resolve_terminal();
+    match kind {
+        TerminalKind::ITerm => {
+            // ps gives "ttys003", iTerm reports "/dev/ttys003"
+            let full_tty = if tty.starts_with("/dev/") {
+                tty.to_string()
+            } else {
+                format!("/dev/{}", tty)
+            };
+
+            let script = format!(
+                r#"tell application "iTerm"
+    repeat with aWindow in windows
+        repeat with aTab in tabs of aWindow
+            repeat with aSession in sessions of aTab
+                if (tty of aSession) = "{}" then
+                    select aTab
+                    tell aWindow to select
+                    activate
+                    return "found"
+                end if
+            end repeat
+        end repeat
+    end repeat
+    return "not found"
+end tell"#,
+                full_tty
+            );
+
+            let output = Command::new("osascript")
+                .args(["-e", &script])
+                .output()
+                .map_err(|e| format!("osascript: {}", e))?;
+
+            let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if result == "found" {
+                Ok(())
+            } else {
+                Err("Tab not found in iTerm2".into())
+            }
+        }
+        TerminalKind::Tmux => {
+            // tmux: find pane by TTY and switch to it
+            let output = Command::new("tmux")
+                .args(["list-panes", "-a", "-F", "#{pane_tty} #{session_name}:#{window_index}"])
+                .output()
+                .map_err(|e| format!("tmux: {}", e))?;
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let full_tty = if tty.starts_with("/dev/") {
+                tty.to_string()
+            } else {
+                format!("/dev/{}", tty)
+            };
+
+            for line in stdout.lines() {
+                if line.starts_with(&full_tty) {
+                    if let Some(target) = line.split_whitespace().nth(1) {
+                        let result = Command::new("tmux")
+                            .args(["select-window", "-t", target])
+                            .output()
+                            .map_err(|e| format!("tmux select: {}", e))?;
+                        if result.status.success() {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            Err("Pane not found in tmux".into())
+        }
+        _ => Err("Focus not supported for this terminal".into()),
     }
 }
 
