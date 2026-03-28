@@ -119,14 +119,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Event::Key(key) => {
                     match app.mode {
                         AppMode::List => match key.code {
-                            KeyCode::Char('q') if app.search_query.is_empty() => break,
+                            KeyCode::Char('q') if app.search_query.is_empty() && !app.viewing_archive => break,
+                            KeyCode::Char('q') if app.search_query.is_empty() && app.viewing_archive => {
+                                app.viewing_archive = false;
+                                app.update_filtered();
+                            }
                             KeyCode::Esc => {
-                                if !app.search_query.is_empty() {
+                                if !app.selected_ids.is_empty() {
+                                    app.selected_ids.clear();
+                                } else if !app.search_query.is_empty() {
                                     app.search_query.clear();
+                                    app.update_filtered();
+                                } else if app.viewing_archive {
+                                    app.viewing_archive = false;
                                     app.update_filtered();
                                 } else {
                                     break 'main;
                                 }
+                            }
+                            KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                                // Toggle selection on current row, then move up
+                                if let Some(s) = app.selected_session() {
+                                    let id = s.id.clone();
+                                    if !app.selected_ids.remove(&id) {
+                                        app.selected_ids.insert(id);
+                                    }
+                                }
+                                app.move_cursor(-1);
+                            }
+                            KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                                if let Some(s) = app.selected_session() {
+                                    let id = s.id.clone();
+                                    if !app.selected_ids.remove(&id) {
+                                        app.selected_ids.insert(id);
+                                    }
+                                }
+                                app.move_cursor(1);
                             }
                             KeyCode::Up => app.move_cursor(-1),
                             KeyCode::Down => app.move_cursor(1),
@@ -134,7 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.list_info_tab = app.list_info_tab.saturating_sub(1);
                             }
                             KeyCode::Right => {
-                                app.list_info_tab = (app.list_info_tab + 1).min(2);
+                                app.list_info_tab = (app.list_info_tab + 1).min(3);
                             }
                             KeyCode::Enter => {
                                 if !app.filtered_indices.is_empty() {
@@ -159,6 +187,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             KeyCode::Char('K') if app.search_query.is_empty() => {
                                 focus_or_open_session(&mut app);
+                            }
+                            KeyCode::Char('A') if app.list_info_tab == 3 && !app.viewing_archive => {
+                                if !app.selected_ids.is_empty() {
+                                    for id in app.selected_ids.drain() {
+                                        app.archived_ids.insert(id);
+                                    }
+                                } else if let Some(s) = app.selected_session() {
+                                    app.archived_ids.insert(s.id.clone());
+                                }
+                                ui::save_archive(&app.archived_ids);
+                                app.update_filtered();
+                            }
+                            KeyCode::Char('V') if app.list_info_tab == 3 && !app.viewing_archive => {
+                                app.viewing_archive = true;
+                                app.update_filtered();
+                            }
+                            KeyCode::Char('R') if app.viewing_archive => {
+                                if !app.selected_ids.is_empty() {
+                                    for id in app.selected_ids.drain() {
+                                        app.archived_ids.remove(&id);
+                                    }
+                                } else if let Some(s) = app.selected_session() {
+                                    app.archived_ids.remove(&s.id.clone());
+                                }
+                                ui::save_archive(&app.archived_ids);
+                                app.update_filtered();
                             }
                             KeyCode::Char(c) => {
                                 app.search_query.push(c);

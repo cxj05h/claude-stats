@@ -9,6 +9,28 @@ use crate::session::{fmt_ago, fmt_duration, fmt_tokens, friendly_mcp_name, short
 use crate::session::context_window_for_model;
 use crate::terminal::ProcessInfo;
 
+fn archive_path() -> std::path::PathBuf {
+    dirs::home_dir().unwrap_or_default().join(".claude").join("stats-archive.json")
+}
+
+fn load_archive() -> std::collections::HashSet<String> {
+    let content = match std::fs::read_to_string(archive_path()) {
+        Ok(c) => c,
+        Err(_) => return std::collections::HashSet::new(),
+    };
+    serde_json::from_str::<Vec<String>>(&content)
+        .unwrap_or_default()
+        .into_iter()
+        .collect()
+}
+
+pub fn save_archive(ids: &std::collections::HashSet<String>) {
+    let vec: Vec<&String> = ids.iter().collect();
+    if let Ok(json) = serde_json::to_string_pretty(&vec) {
+        let _ = std::fs::write(archive_path(), json);
+    }
+}
+
 // Theme colors that work with both dark (navy bg) and light (warm gray bg) iTerm themes
 const LABEL: Color = Color::Rgb(140, 140, 170);   // soft lavender-gray for labels
 const DIM: Color = Color::Rgb(100, 100, 130);      // dimmer but still readable
@@ -164,6 +186,9 @@ pub struct App {
     pub mouse_captured: bool,             // whether mouse events are captured (vs terminal selection)
     pub chat_max_scroll: usize,           // max valid detail_scroll (set by draw)
     pub seen_sessions: std::collections::HashMap<String, usize>, // session_id → turns at time of dismissal
+    pub archived_ids: std::collections::HashSet<String>,  // session IDs hidden from main list
+    pub viewing_archive: bool,                             // true = showing archived sessions only
+    pub selected_ids: std::collections::HashSet<String>,   // multi-selected session IDs
     pub status_message: Option<(String, std::time::Instant)>, // transient footer message
     pub process_map: std::collections::HashMap<String, ProcessInfo>, // session_id → running process info
     pub our_tty: Option<String>, // TTY of this claude-stats process (for self-detection)
@@ -200,6 +225,9 @@ impl App {
             chat_inner_h: 0,
             chat_max_scroll: 0,
             seen_sessions: std::collections::HashMap::new(),
+            archived_ids: load_archive(),
+            viewing_archive: false,
+            selected_ids: std::collections::HashSet::new(),
             status_message: None,
             process_map: std::collections::HashMap::new(),
             our_tty: crate::terminal::current_tty(),
@@ -230,8 +258,19 @@ impl App {
     }
 
     pub fn update_filtered(&mut self) {
+        let archive_filter = |i: &usize| -> bool {
+            let id = &self.store.sessions[*i].id;
+            if self.viewing_archive {
+                self.archived_ids.contains(id)
+            } else {
+                !self.archived_ids.contains(id)
+            }
+        };
+
         if self.search_query.is_empty() {
-            self.filtered_indices = (0..self.store.sessions.len().min(40)).collect();
+            self.filtered_indices = (0..self.store.sessions.len().min(40))
+                .filter(archive_filter)
+                .collect();
         } else {
             let query = &self.search_query;
             let mut scored: Vec<(i64, usize)> = self
@@ -239,6 +278,7 @@ impl App {
                 .sessions
                 .iter()
                 .enumerate()
+                .filter(|(i, _)| archive_filter(i))
                 .filter_map(|(i, s)| {
                     let haystack = format!("{} {} {}", s.title, s.cwd, short_model(&s.model));
                     self.matcher
@@ -348,8 +388,9 @@ fn draw_list(f: &mut Frame, app: &mut App) {
         .split(area);
 
     // Header
+    let header_title = if app.viewing_archive { "  Archive " } else { "  Claude Stats " };
     let header = Paragraph::new(Line::from(vec![
-        Span::styled("  Claude Stats ", Style::default().bold().fg(Color::White)),
+        Span::styled(header_title, Style::default().bold().fg(Color::White)),
         Span::styled(
             format!("  {} sessions", app.filtered_indices.len()),
             Style::default().fg(LABEL),
@@ -407,10 +448,15 @@ fn draw_list(f: &mut Frame, app: &mut App) {
 
             let is_agent = s.parent_session_id.is_some();
             let is_running = !is_agent && app.process_map.contains_key(&s.id);
+            let is_multi = app.selected_ids.contains(&s.id);
             let marker = if is_selected && is_live {
                 "▶●"
+            } else if is_selected && is_multi {
+                "▶✓"
             } else if is_selected {
                 "▶ "
+            } else if is_multi {
+                " ✓"
             } else if is_live {
                 " ●"
             } else if is_running {
@@ -418,7 +464,9 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             } else {
                 "  "
             };
-            let marker_style = if is_selected && is_live {
+            let marker_style = if is_multi && !is_selected {
+                Style::default().fg(Color::Rgb(220, 160, 60)).bold()
+            } else if is_selected && is_live {
                 Style::default().fg(Color::Green).bold()
             } else if is_selected {
                 Style::default().fg(FOOTER_KEY).bold()
@@ -500,6 +548,8 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 Style::default().bg(Color::Rgb(15, 50, 25))
             } else if is_selected {
                 Style::default().bg(SEL_BG)
+            } else if is_multi {
+                Style::default().bg(Color::Rgb(40, 35, 20))
             } else if is_live {
                 Style::default().bg(Color::Rgb(10, 38, 18))
             } else {
@@ -543,7 +593,7 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(BORDER))
-                .title(" Sessions ")
+                .title(if app.viewing_archive { " Archived Sessions " } else { " Sessions " })
                 .title_style(Style::default().fg(Color::White).bold()),
         );
     f.render_widget(table, chunks[2]);
@@ -551,7 +601,7 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     // Info bar — shows details for selected session based on tab
     if let Some(&idx) = app.filtered_indices.get(app.cursor) {
         if let Some(s) = app.store.sessions.get(idx) {
-            let tab_labels = ["Branch", "Path", "Models"];
+            let tab_labels = ["Branch", "Path", "Models", "Archive"];
             let mut tab_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];
             for (i, label) in tab_labels.iter().enumerate() {
                 if i == app.list_info_tab {
@@ -583,6 +633,14 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                             .join(" → ")
                     }
                 }
+                3 => {
+                    let count = app.archived_ids.len();
+                    if count == 0 {
+                        "Archive empty".to_string()
+                    } else {
+                        format!("{} archived", count)
+                    }
+                }
                 _ => String::new(),
             };
 
@@ -607,29 +665,83 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 Line::from(tab_spans),
             ]), chunks[3]);
         }
+    } else if app.list_info_tab == 3 {
+        // Empty list but Archive tab selected — still show tab bar with archive count
+        let tab_labels = ["Branch", "Path", "Models", "Archive"];
+        let mut tab_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];
+        for (i, label) in tab_labels.iter().enumerate() {
+            if i == app.list_info_tab {
+                tab_spans.push(Span::styled(format!("[{}]", label), Style::default().fg(Color::White).bold()));
+            } else {
+                tab_spans.push(Span::styled(format!(" {} ", label), Style::default().fg(DIM)));
+            }
+        }
+        tab_spans.push(Span::styled("  ", Style::default()));
+        let detail = if app.archived_ids.is_empty() { "Archive empty".to_string() } else { format!("{} archived", app.archived_ids.len()) };
+        tab_spans.push(Span::styled(detail, Style::default().fg(PREVIEW)));
+        f.render_widget(Paragraph::new(vec![Line::from(tab_spans)]), chunks[3]);
     }
 
-    // Footer
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled(" ↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("navigate  ", Style::default().fg(LABEL)),
-        Span::styled("←→ ", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("info tab  ", Style::default().fg(LABEL)),
-        Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("inspect  ", Style::default().fg(LABEL)),
-        Span::styled("type ", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("search  ", Style::default().fg(LABEL)),
-        Span::styled("K ", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("focus  ", Style::default().fg(LABEL)),
-        Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("quit  ", Style::default().fg(LABEL)),
-        Span::styled("C/X ", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("clearAll/1  ", Style::default().fg(LABEL)),
-        Span::styled("● ", Style::default().fg(Color::Green)),
-        Span::styled("active ", Style::default().fg(LABEL)),
-        Span::styled("◆ ", Style::default().fg(Color::Rgb(100, 180, 220))),
-        Span::styled("running", Style::default().fg(LABEL)),
-    ]));
+    // Footer — context-sensitive based on archive state
+    let select_hint = if !app.selected_ids.is_empty() {
+        format!("  {} selected", app.selected_ids.len())
+    } else {
+        String::new()
+    };
+    let footer = if app.viewing_archive {
+        Paragraph::new(Line::from(vec![
+            Span::styled(" ↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("navigate  ", Style::default().fg(LABEL)),
+            Span::styled("S-↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("select  ", Style::default().fg(LABEL)),
+            Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("inspect  ", Style::default().fg(LABEL)),
+            Span::styled("R ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("unarchive  ", Style::default().fg(LABEL)),
+            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("back", Style::default().fg(LABEL)),
+            Span::styled(select_hint.clone(), Style::default().fg(Color::Rgb(220, 160, 60)).bold()),
+        ]))
+    } else if app.list_info_tab == 3 {
+        Paragraph::new(Line::from(vec![
+            Span::styled(" ↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("navigate  ", Style::default().fg(LABEL)),
+            Span::styled("S-↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("select  ", Style::default().fg(LABEL)),
+            Span::styled("A ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("archive  ", Style::default().fg(LABEL)),
+            Span::styled("V ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("view archive  ", Style::default().fg(LABEL)),
+            Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("inspect  ", Style::default().fg(LABEL)),
+            Span::styled("type ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("search  ", Style::default().fg(LABEL)),
+            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("quit", Style::default().fg(LABEL)),
+            Span::styled(select_hint, Style::default().fg(Color::Rgb(220, 160, 60)).bold()),
+        ]))
+    } else {
+        Paragraph::new(Line::from(vec![
+            Span::styled(" ↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("navigate  ", Style::default().fg(LABEL)),
+            Span::styled("←→ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("info tab  ", Style::default().fg(LABEL)),
+            Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("inspect  ", Style::default().fg(LABEL)),
+            Span::styled("type ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("search  ", Style::default().fg(LABEL)),
+            Span::styled("K ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("focus  ", Style::default().fg(LABEL)),
+            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("quit  ", Style::default().fg(LABEL)),
+            Span::styled("C/X ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("clearAll/1  ", Style::default().fg(LABEL)),
+            Span::styled("● ", Style::default().fg(Color::Green)),
+            Span::styled("active ", Style::default().fg(LABEL)),
+            Span::styled("◆ ", Style::default().fg(Color::Rgb(100, 180, 220))),
+            Span::styled("running", Style::default().fg(LABEL)),
+        ]))
+    };
     f.render_widget(footer, chunks[4]);
 }
 
