@@ -400,14 +400,18 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             let is_selected = i == app.cursor;
             let is_live = current_sid.map(|c| c == s.id).unwrap_or(false);
 
-            let marker = if is_selected {
-                "▶"
+            let marker = if is_selected && is_live {
+                "▶●"
+            } else if is_selected {
+                "▶ "
             } else if is_live {
-                "●"
+                " ●"
             } else {
-                " "
+                "  "
             };
-            let marker_style = if is_selected {
+            let marker_style = if is_selected && is_live {
+                Style::default().fg(Color::Green).bold()
+            } else if is_selected {
                 Style::default().fg(FOOTER_KEY).bold()
             } else if is_live {
                 Style::default().fg(Color::Green)
@@ -425,29 +429,24 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             // Determine waiting indicator
             let indicator = app.effective_indicator(s);
 
-            let has_indicator = indicator.is_some();
-            let max_title_len = if has_indicator { 25 } else { 28 };
-            let title = if raw_title.len() > max_title_len {
-                let truncated = format!("{}…", &raw_title[..max_title_len - 1]);
-                match indicator {
-                    Some(ind) => format!("{}{}", truncated, ind),
-                    None => truncated,
-                }
-            } else {
-                match indicator {
-                    Some(ind) => format!("{}{}", raw_title, ind),
-                    None => raw_title,
-                }
+            // Don't truncate titles — the table column (Constraint::Min) handles overflow.
+            // Hardcoded limits were clipping titles even when the column had room.
+            let title = match indicator {
+                Some(ind) => format!("{}{}", raw_title, ind),
+                None => raw_title,
             };
 
             let is_permission_waiting = indicator == Some(" ⏳");
 
-            let title_style = if is_selected {
+            let title_style = if is_permission_waiting {
+                // Permission waiting always shows red — even if live or selected
+                Style::default().fg(Color::Red).bold()
+            } else if is_selected && is_live {
+                Style::default().fg(Color::Green).bold()
+            } else if is_selected {
                 Style::default().fg(Color::White).bold()
             } else if is_live {
                 Style::default().fg(Color::Green).bold()
-            } else if is_permission_waiting {
-                Style::default().fg(Color::Red).bold()
             } else if is_agent {
                 Style::default().fg(Color::White)
             } else {
@@ -480,13 +479,16 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 .collect::<Vec<_>>()
                 .join(" ");
 
-            let live_label = if is_live && !is_selected {
+            let live_label = if is_live {
                 " ◉ live"
             } else {
                 ""
             };
 
-            let row_style = if is_selected {
+            let row_style = if is_selected && is_live {
+                // Selected + live: brighter green bg
+                Style::default().bg(Color::Rgb(15, 50, 25))
+            } else if is_selected {
                 Style::default().bg(SEL_BG)
             } else if is_live {
                 Style::default().bg(Color::Rgb(10, 38, 18))
@@ -514,7 +516,7 @@ fn draw_list(f: &mut Frame, app: &mut App) {
         .collect();
 
     let widths = [
-        Constraint::Length(2),   // marker
+        Constraint::Length(3),   // marker (▶● when selected+live)
         Constraint::Min(20),     // title + indicators
         Constraint::Length(10),  // model
         Constraint::Length(6),   // effort
