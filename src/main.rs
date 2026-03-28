@@ -19,7 +19,10 @@ use ui::{App, AppMode};
 fn focus_or_open_session(app: &mut App) {
     let Some(s) = app.selected_session() else { return };
     let sid = s.id.clone();
+    let turns = s.turns;
     let cwd = s.cwd.replace("~", &dirs::home_dir().unwrap_or_default().to_string_lossy());
+    // Dismiss waiting indicator — user is engaging with this session
+    app.seen_sessions.insert(sid.clone(), turns);
 
     if let Some(info) = app.process_map.get(&sid) {
         // Check if this session is running in our own terminal tab
@@ -237,7 +240,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 // Open session in a new terminal tab (claude-stats stays running)
                                 if let Some(s) = app.selected_session() {
                                     let sid = s.id.clone();
+                                    let turns = s.turns;
                                     let cwd = s.cwd.replace("~", &dirs::home_dir().unwrap_or_default().to_string_lossy());
+                                    app.seen_sessions.insert(sid.clone(), turns);
                                     match crate::terminal::open_in_new_tab(&sid, &cwd) {
                                         Ok(()) => {
                                             app.status_message = Some(("Opened in new tab".into(), std::time::Instant::now()));
@@ -255,7 +260,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 // Replace this process with claude --resume (legacy behavior)
                                 if let Some(s) = app.selected_session() {
                                     let sid = s.id.clone();
+                                    let turns = s.turns;
                                     let cwd = s.cwd.replace("~", &dirs::home_dir().unwrap_or_default().to_string_lossy());
+                                    app.seen_sessions.insert(sid.clone(), turns);
                                     disable_raw_mode()?;
                                     execute!(
                                         terminal.backend_mut(),
