@@ -1,24 +1,122 @@
 # claude-stats
 
-A native terminal dashboard for Claude Code usage. Browse sessions, inspect token usage, view context breakdowns, and read chat history -- all from a standalone TUI.
+A lightweight session tracking manager for Claude Code. Browse, search, and monitor every conversation from a standalone terminal dashboard.
 
 ![Rust](https://img.shields.io/badge/Rust-ratatui-orange)
 
-## Features
+## Why claude-stats
 
-- **Session browser** -- 30 most recent sessions, sorted by activity, with fuzzy search
-- **Live detection** -- prominent green indicator with `◉ live` label on the active session
-- **Token usage** -- input/output/cache read/cache write per session
-- **Context breakdown** -- system prompts, user messages, tool results, assistant output, images
-- **Model & effort tracking** -- model timeline and effort level changes within a session
-- **MCP tool usage** -- counts per MCP server
-- **Scrollable chat history** -- full conversation with markdown rendering, code blocks, diff highlighting
-- **In-chat search** -- `/` to search within chat, `n`/`N` for next/prev match, highlighted results
-- **Animated mascot** -- pixel art Claude with blinking eyes and wing flap on scroll
-- **Agent linking** -- subagent sessions linked to parents via directory structure
-- **Weekly usage stats** -- Opus/Sonnet token totals from local stats cache
-- **Auto-refresh** -- session list reloads every ~3 seconds
-- **Dark & light theme support** -- colors tuned for both terminal backgrounds
+Claude Code sessions pile up fast. You run dozens of conversations across projects, switch models mid-session, spawn agents, burn through context windows -- and there's no single place to see what happened, how much you used, or where you left off.
+
+claude-stats gives you that visibility. It reads Claude Code's local session files and renders them in a fast, keyboard-driven TUI. No API calls, no setup, no config. Just run `claude-stats` and you're looking at your 30 most recent sessions with full token breakdowns, context usage, model history, and searchable chat logs.
+
+Think of it as the missing management layer: a way to stay on top of your Claude Code usage without leaving the terminal.
+
+## What You Can Do
+
+### Find any session instantly
+
+Start typing and claude-stats fuzzy-searches across session titles, project paths, and model names. Results filter in real time. No scrolling through history, no grepping JSONL files -- just type a few characters and the session you want floats to the top.
+
+### Monitor context usage per session
+
+The detail view shows exactly where your context window stands: a color-coded gradient bar (blue through green to red at 80%+), the raw token count and percentage, and a category breakdown showing how much context is consumed by system prompts, your messages, tool results, assistant output, and images. You can see at a glance whether a session has room to breathe or is about to hit the wall.
+
+### Track token consumption
+
+Every session shows input, output, cache read, and cache write tokens. The detail view breaks these out individually with a bold total. The Usage tab (cycle with `Left`/`Right` on the session list) shows weekly rollups per model -- how many Opus and Sonnet tokens you've burned through, total sessions and messages. Useful for staying aware of your consumption patterns.
+
+### Jump into any session with one key
+
+Press `c` in the detail view and claude-stats hands you off directly to `claude --resume` for that session, launched from the correct working directory. No copying session IDs, no navigating to the right folder. One keystroke and you're back in the conversation.
+
+### Track agent sessions
+
+Subagent sessions are automatically linked to their parent conversation. They appear in the list with a `⤷` prefix and show the parent session name in the info bar. You can inspect agent sessions the same way as any other -- full token usage, chat history, context breakdown. Useful for understanding what your spawned agents actually did.
+
+### See git branch per session
+
+The detail view shows which git branch (or worktree) each session was running on. Handy when you're working across multiple feature branches and need to remember which conversation was driving which branch.
+
+### Follow model and effort changes
+
+Sessions that switched models show the full timeline (e.g., Opus 4.5 -> Sonnet 4.5) in both the Models info tab and the detail view. Effort level (low/med/high/max) is tracked per session. Context window size adjusts automatically -- 1M for Opus, 200K for Sonnet/Haiku.
+
+### Search within chat messages
+
+Press `/` in the detail view to search inside the conversation. Matches are highlighted in yellow, the current match in orange. Use `n`/`N` to jump between results. The viewport auto-scrolls to center each match.
+
+### Spot live sessions
+
+The currently active session gets a green `●` indicator and highlighted row in the list. The session list auto-refreshes every ~3 seconds, so you can keep claude-stats open in a side terminal while working and watch activity in real time.
+
+## How to Use
+
+### Session list
+
+Launch `claude-stats` and you'll see your 30 most recent sessions in a table:
+
+| Column | Shows |
+|--------|-------|
+| Title | Session name (agents prefixed with `⤷`) |
+| Model | Active model (Opus, Sonnet, Haiku) |
+| Effort | Effort level (LOW/MED/HIGH/MAX) |
+| Tokens | Total input + output tokens |
+| Turns | Number of conversation turns |
+| MCPs | Top 2 MCP servers used (GitHub, Notion, etc.) |
+| When | Time since last activity (5m ago, 2h ago) |
+| Duration | Total session time |
+
+Navigate with `Up`/`Down`. The info bar below the table has three tabs you can cycle with `Left`/`Right`:
+
+- **MCPs** -- all MCP servers used with call counts
+- **Path** -- working directory where the session ran
+- **Models** -- model transition timeline
+
+### Detail view
+
+Press `Enter` on any session to inspect it. The detail view has four panels:
+
+- **Session info** -- model, effort, start time, duration, turn count, tool calls, MCP usage, git branch
+- **Token usage** -- output, input, cache read, cache write, total, and last-turn breakdown
+- **Context window** -- visual usage bar with color gradient, category breakdown with token estimates, remaining capacity
+- **Chat history** -- full scrollable conversation with markdown rendering, code blocks, diff highlighting, and expandable tool calls
+
+Press `f` to go fullscreen on the chat. Press `Enter` to expand/collapse all tool call diffs at once, or click individual ones. Use `Left`/`Right` to step through sessions without going back to the list.
+
+### Quick resume
+
+From the detail view, press `c` to drop out of claude-stats and resume that session in Claude Code. It launches from the session's original working directory.
+
+## Keybindings
+
+### Session list
+
+| Key | Action |
+|-----|--------|
+| `Up` / `Down` | Navigate sessions |
+| `Left` / `Right` | Cycle info tabs (MCPs / Path / Models) |
+| `Enter` | Open session detail |
+| Type anything | Fuzzy search sessions |
+| `Backspace` | Delete search character |
+| `Esc` | Clear search / quit |
+| `q` | Quit |
+
+### Detail view
+
+| Key | Action |
+|-----|--------|
+| `Up` / `Down` | Scroll chat |
+| `PgUp` / `PgDn` | Scroll chat by 10 lines |
+| `Home` / `End` | Jump to top / bottom |
+| `Left` / `Right` | Previous / next session |
+| `Enter` | Expand/collapse all tool diffs |
+| `f` | Toggle fullscreen chat |
+| `c` | Resume session in Claude Code |
+| `/` | Search within chat |
+| `n` / `N` | Next / previous search match |
+| `m` | Toggle mouse capture (for text selection) |
+| `Esc` / `q` | Back to list |
 
 ## Install
 
@@ -47,28 +145,6 @@ cp target/release/claude-stats ~/.local/bin/
 
 Requires Rust 1.70+.
 
-## Usage
-
-```bash
-claude-stats
-```
-
-### Keybindings
-
-| Key | Action |
-|-----|--------|
-| `Up/Down` | Navigate sessions / scroll chat |
-| `Enter` | Open session detail |
-| `Left/Right` | Cycle info tabs (list) / prev/next session (detail) |
-| `Esc/q` | Back / quit |
-| `f` | Toggle fullscreen chat |
-| `/` | Search within chat |
-| `n/N` | Next/previous search match |
-| `c` | Resume session in Claude Code |
-| `PgUp/PgDn` | Fast scroll chat |
-| `Home/End` | Jump to top/bottom of chat |
-| Type anything | Fuzzy search sessions |
-
 ## Data Sources
 
 claude-stats reads directly from Claude Code's local files -- no API calls needed:
@@ -77,6 +153,8 @@ claude-stats reads directly from Claude Code's local files -- no API calls neede
 - `~/.claude/stats-cache.json` -- weekly token statistics
 - `~/.claude/stats-config.json` -- plan type configuration
 - `~/.claude/settings.json` -- effort level
+
+Works with both subscription (Pro/Max) and API key authentication -- any login method that produces local session files.
 
 ## Dependencies
 
