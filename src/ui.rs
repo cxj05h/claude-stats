@@ -1473,23 +1473,29 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
             }
             ContentBlock::ToolResult(result) => {
                 // Show tool result indented under previous tool_use
+                let result_prefix_w = 14; // "            └ "
+                let max_result_w = text_w.saturating_sub(result_prefix_w);
                 for line in result.lines().take(5) {
                     let trimmed = line.trim();
                     if !trimmed.is_empty() {
+                        let truncated: String = trimmed.chars().take(max_result_w).collect();
                         lines.push(Line::from(vec![
                             Span::styled("            └ ", Style::default().fg(tool_dim)),
-                            Span::styled(trimmed.to_string(), Style::default().fg(tool_dim)),
+                            Span::styled(truncated, Style::default().fg(tool_dim)),
                         ]));
                     }
                 }
             }
             ContentBlock::ToolUse { name, summary, old_str, new_str } => {
                 // Green dot + tool name like Claude Code
-                let display_name = if name == "Edit" || name == "Write" {
+                let tool_prefix_w = 12; // "          ● "
+                let max_tool_w = text_w.saturating_sub(tool_prefix_w + 2); // reserve for expand arrow
+                let full_name = if name == "Edit" || name == "Write" {
                     format!("Update({})", summary)
                 } else {
                     format!("{}({})", name, summary)
                 };
+                let display_name: String = full_name.chars().take(max_tool_w).collect();
 
                 let has_diff = !old_str.is_empty() || !new_str.is_empty();
                 let expanded = has_diff && app.expanded_msgs.contains(&msg_idx);
@@ -1521,21 +1527,24 @@ fn draw_claude_animation(f: &mut Frame, area: Rect, session: &Session, app: &mut
                         Span::styled("            └ ", Style::default().fg(tool_dim)),
                         Span::styled(format!("Added {} lines, removed {} lines", add_count, del_count), Style::default().fg(tool_dim)),
                     ]));
+                    let diff_content_w = text_w.saturating_sub(7); // "NNNN - " prefix
                     let mut line_num = 1usize;
                     for line in old_str.lines() {
+                        let truncated: String = line.chars().take(diff_content_w).collect();
                         lines.push(Line::from(vec![
                             Span::styled(format!("{:>4} ", line_num), Style::default().fg(DIM)),
                             Span::styled("- ", Style::default().fg(diff_del).bold()),
-                            Span::styled(line.to_string(), Style::default().fg(diff_del)),
+                            Span::styled(truncated, Style::default().fg(diff_del)),
                         ]));
                         line_num += 1;
                     }
                     line_num = 1;
                     for line in new_str.lines() {
+                        let truncated: String = line.chars().take(diff_content_w).collect();
                         lines.push(Line::from(vec![
                             Span::styled(format!("{:>4} ", line_num), Style::default().fg(DIM)),
                             Span::styled("+ ", Style::default().fg(diff_add).bold()),
-                            Span::styled(line.to_string(), Style::default().fg(diff_add)),
+                            Span::styled(truncated, Style::default().fg(diff_add)),
                         ]));
                         line_num += 1;
                     }

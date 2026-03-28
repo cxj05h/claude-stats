@@ -136,6 +136,42 @@ pub fn friendly_mcp_name(raw: &str) -> String {
     }
 }
 
+/// Sanitize text for terminal display:
+/// - Replace tabs with spaces (tabs cause cursor misalignment in TUI)
+/// - Strip ANSI escape sequences (ESC[...m color codes etc.)
+/// - Remove other control characters (except newline)
+fn sanitize_for_display(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // Skip ANSI escape sequence: ESC[ ... <letter>
+            if chars.peek() == Some(&'[') {
+                chars.next(); // consume '['
+                while let Some(&c) = chars.peek() {
+                    chars.next();
+                    if c.is_ascii_alphabetic() || c == '~' {
+                        break;
+                    }
+                }
+            }
+            // Skip other ESC sequences (ESC + one char)
+            else if chars.peek().is_some() {
+                chars.next();
+            }
+        } else if ch == '\t' {
+            result.push_str("  ");
+        } else if ch == '\n' {
+            result.push(ch);
+        } else if ch.is_control() {
+            // Skip other control characters
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
 /// Strip XML-like tags from preview text (system reminders, command tags, etc.)
 fn strip_xml_tags(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
@@ -354,7 +390,7 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                                             session.context_breakdown.system_plugins_skills += size;
                                         } else {
                                             session.context_breakdown.user_messages += size;
-                                            let cleaned = strip_xml_tags(&text.chars().take(2000).collect::<String>());
+                                            let cleaned = sanitize_for_display(&strip_xml_tags(&text.chars().take(2000).collect::<String>()));
                                             let trimmed = cleaned.trim();
                                             if !trimmed.is_empty() && !trimmed.contains("Caveat: The messages below") {
                                                 waiting_state = WaitingState::None; // real user text
@@ -373,10 +409,11 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                                     let size = block.to_string().len() as u64 / 4;
                                     session.context_breakdown.tool_results += size;
                                     // Extract tool result content
-                                    let result_text = block.get("content")
+                                    let raw_text = block.get("content")
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("")
                                         .chars().take(500).collect::<String>();
+                                    let result_text = sanitize_for_display(&raw_text);
                                     if !result_text.trim().is_empty() {
                                         session.messages.push(MessageInfo {
                                             role: "user".into(),
@@ -391,7 +428,7 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                             }
                         }
                     } else if let Some(s) = content.as_str() {
-                        let cleaned = strip_xml_tags(&s.chars().take(2000).collect::<String>());
+                        let cleaned = sanitize_for_display(&strip_xml_tags(&s.chars().take(2000).collect::<String>()));
                         let trimmed = cleaned.trim();
                         if !trimmed.is_empty() {
                             waiting_state = WaitingState::None; // real user text
@@ -467,15 +504,15 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                                         }
                                     }
                                     let input = block.get("input");
-                                    let summary = input.and_then(|v| {
+                                    let summary = sanitize_for_display(&input.and_then(|v| {
                                         v.get("command").and_then(|c| c.as_str()).map(|s| s.chars().take(80).collect::<String>())
                                         .or_else(|| v.get("file_path").and_then(|c| c.as_str()).map(|s| s.to_string()))
                                         .or_else(|| v.get("pattern").and_then(|c| c.as_str()).map(|s| s.to_string()))
-                                    }).unwrap_or_default();
-                                    let old_str = input.and_then(|v| v.get("old_string").and_then(|s| s.as_str()))
-                                        .unwrap_or("").to_string();
-                                    let new_str = input.and_then(|v| v.get("new_string").and_then(|s| s.as_str()))
-                                        .unwrap_or("").to_string();
+                                    }).unwrap_or_default());
+                                    let old_str = sanitize_for_display(input.and_then(|v| v.get("old_string").and_then(|s| s.as_str()))
+                                        .unwrap_or(""));
+                                    let new_str = sanitize_for_display(input.and_then(|v| v.get("new_string").and_then(|s| s.as_str()))
+                                        .unwrap_or(""));
                                     session.messages.push(MessageInfo {
                                         role: "assistant".into(),
                                         block: ContentBlock::ToolUse {
@@ -488,7 +525,7 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                                 }
                                 Some("text") => {
                                     if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
-                                        let cleaned = strip_xml_tags(&text.chars().take(2000).collect::<String>());
+                                        let cleaned = sanitize_for_display(&strip_xml_tags(&text.chars().take(2000).collect::<String>()));
                                         let trimmed = cleaned.trim();
                                         if !trimmed.is_empty() {
                                             session.turns += 1;
