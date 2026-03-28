@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = SessionStore::load();
     let mut app = App::new(store);
 
-    // Main loop — reload sessions every ~1.5s (15 ticks at ~100ms)
+    // Main loop — fast refresh every ~1s, full reload every ~5s
     'main: loop {
         if quit_signal.load(Ordering::Relaxed) {
             break;
@@ -44,8 +44,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.tick += 1;
         app.mascot.update();
 
-        if app.tick.is_multiple_of(15) {
+        if app.tick.is_multiple_of(50) {
+            // Full reload every ~5s: re-scan files, pick up new/removed sessions
             app.reload_sessions();
+        } else if app.tick.is_multiple_of(10) {
+            // Fast refresh every ~1s: only read new bytes for waiting state
+            app.fast_refresh();
         }
 
         terminal.draw(|f| ui::draw(f, &mut app))?;

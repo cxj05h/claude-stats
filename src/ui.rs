@@ -275,14 +275,8 @@ impl App {
         }
     }
 
-    pub fn reload_sessions(&mut self) {
-        // Remember currently selected session ID to restore position
-        let selected_id = self.selected_session().map(|s| s.id.clone());
-
-        self.store = SessionStore::load();
-
-        // Clean up seen_sessions: remove entries where turns have changed
-        // (new activity means indicator should be eligible to reappear)
+    fn cleanup_seen_sessions(&mut self) {
+        // Remove entries where turns have changed (new activity = indicator can reappear)
         let stale: Vec<String> = self.seen_sessions.iter()
             .filter(|(id, &dismissed_turns)| {
                 self.store.sessions.iter()
@@ -295,6 +289,20 @@ impl App {
         for id in stale {
             self.seen_sessions.remove(&id);
         }
+    }
+
+    /// Fast refresh: only read new bytes from session files to update waiting state.
+    pub fn fast_refresh(&mut self) {
+        self.store.refresh_waiting_states();
+        self.cleanup_seen_sessions();
+    }
+
+    pub fn reload_sessions(&mut self) {
+        // Remember currently selected session ID to restore position
+        let selected_id = self.selected_session().map(|s| s.id.clone());
+
+        self.store = SessionStore::load();
+        self.cleanup_seen_sessions();
 
         self.update_filtered();
 

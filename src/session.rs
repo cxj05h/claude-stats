@@ -48,6 +48,7 @@ pub struct Session {
     pub parent_session_id: Option<String>, // for agent subagents
     pub compressions: Vec<usize>,            // turn indices where context was compressed
     pub waiting_state: WaitingState,
+    pub last_file_size: u64,                 // bytes at last full parse
 }
 
 pub fn context_window_for_model(model: &str) -> u64 {
@@ -263,6 +264,7 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
         parent_session_id: parent_id,
         compressions: Vec::new(),
         waiting_state: WaitingState::None,
+        last_file_size: 0,
         context_breakdown: ContextBreakdown {
             system_plugins_skills: 0,
             user_messages: 0,
@@ -533,6 +535,8 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
         session.cwd = session.cwd.replace(&home_str, "~");
     }
 
+    session.last_file_size = content.len() as u64;
+
     Some(session)
 }
 
@@ -597,6 +601,108 @@ impl SessionStore {
             current_effort,
             stats_cache,
         }
+    }
+
+    /// Fast incremental refresh: only read new bytes from each session file
+    /// to update waiting_state and turns without re-parsing everything.
+    pub fn refresh_waiting_states(&mut self) {
+        use std::io::{Read, Seek, SeekFrom};
+
+        for session in &mut self.sessions {
+            let file_size = fs::metadata(&session.file_path)
+                .map(|m| m.len())
+                .unwrap_or(0);
+
+            // Skip if file hasn't grown
+            if file_size <= session.last_file_size {
+                continue;
+            }
+
+            // Read only new bytes
+            let mut file = match fs::File::open(&session.file_path) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+            if file.seek(SeekFrom::Start(session.last_file_size)).is_err() {
+                continue;
+            }
+            let mut new_bytes = Vec::new();
+            if file.read_to_end(&mut new_bytes).is_err() {
+                continue;
+            }
+            let new_content = String::from_utf8_lossy(&new_bytes);
+
+            let mut waiting = session.waiting_state.clone();
+            let mut turns = session.turns;
+
+            for line in new_content.lines() {
+                let entry: Value = match serde_json::from_str(line) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                let entry_type = entry.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+                if entry_type == "assistant" {
+                    if let Some(msg) = entry.get("message") {
+                        match msg.get("stop_reason").and_then(|v| v.as_str()) {
+                            Some("end_turn") => waiting = WaitingState::WaitingForInput,
+                            Some("tool_use") => waiting = WaitingState::WaitingForPermission,
+                            _ => {}
+                        }
+                        // Count new turns from content blocks
+                        if let Some(content) = msg.get("content").and_then(|v| v.as_array()) {
+                            for block in content {
+                                match block.get("type").and_then(|v| v.as_str()) {
+                                    Some("tool_use") | Some("text") => turns += 1,
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                } else if entry_type == "user" {
+                    if let Some(msg) = entry.get("message") {
+                        if let Some(content) = msg.get("content") {
+                            if let Some(arr) = content.as_array() {
+                                for block in arr {
+                                    let btype = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                                    match btype {
+                                        "text" => {
+                                            if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                                                if !text.contains("<system-reminder>")
+                                                    && !text.contains("CLAUDE.md")
+                                                    && !text.contains("<command-name>")
+                                                {
+                                                    let trimmed = text.trim();
+                                                    if !trimmed.is_empty() {
+                                                        waiting = WaitingState::None;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        "tool_result" => {
+                                            if waiting == WaitingState::WaitingForPermission {
+                                                waiting = WaitingState::None;
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            } else if content.as_str().is_some() {
+                                waiting = WaitingState::None;
+                            }
+                        }
+                    }
+                }
+            }
+
+            session.waiting_state = waiting;
+            session.turns = turns;
+            session.last_file_size = file_size;
+        }
+
+        // Also refresh live session detection
+        self.current_session_id = Self::find_live_session(&self.sessions);
     }
 
     fn collect_jsonl_files(dir: &Path, files: &mut Vec<(PathBuf, std::time::SystemTime)>) {
