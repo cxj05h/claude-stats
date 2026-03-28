@@ -31,6 +31,34 @@ pub fn save_archive(ids: &std::collections::HashSet<String>) {
     }
 }
 
+/// Find child agent session IDs for a parent by scanning the filesystem.
+/// Agents live at ~/.claude/projects/{project}/{parent_id}/subagents/agent-*.jsonl
+pub fn find_child_agent_ids(parent_id: &str) -> Vec<String> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let projects = home.join(".claude").join("projects");
+    let mut ids = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&projects) {
+        for entry in entries.flatten() {
+            let subagents = entry.path().join(parent_id).join("subagents");
+            if subagents.is_dir() {
+                if let Ok(agents) = std::fs::read_dir(&subagents) {
+                    for agent in agents.flatten() {
+                        let path = agent.path();
+                        if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                                if stem.starts_with("agent-") {
+                                    ids.push(stem.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ids
+}
+
 // Theme colors that work with both dark (navy bg) and light (warm gray bg) iTerm themes
 const LABEL: Color = Color::Rgb(140, 140, 170);   // soft lavender-gray for labels
 const DIM: Color = Color::Rgb(100, 100, 130);      // dimmer but still readable

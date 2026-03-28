@@ -207,17 +207,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 focus_or_open_session(&mut app);
                             }
                             KeyCode::Char('A') if app.list_info_tab == 3 && !app.viewing_archive => {
-                                let count = if !app.selected_ids.is_empty() {
-                                    let c = app.selected_ids.len();
-                                    for id in app.selected_ids.drain() {
-                                        app.archived_ids.insert(id);
-                                    }
-                                    c
+                                let mut to_archive: Vec<String> = Vec::new();
+                                if !app.selected_ids.is_empty() {
+                                    to_archive.extend(app.selected_ids.drain());
                                 } else if let Some(s) = app.selected_session() {
-                                    app.archived_ids.insert(s.id.clone());
-                                    1
-                                } else { 0 };
-                                cs_log!("archive: added {} sessions, total={}", count, app.archived_ids.len());
+                                    to_archive.push(s.id.clone());
+                                }
+                                // Also archive child agents by scanning filesystem
+                                let children: Vec<String> = to_archive.iter()
+                                    .flat_map(|id| ui::find_child_agent_ids(id))
+                                    .collect();
+                                let count = to_archive.len();
+                                for id in to_archive.into_iter().chain(children) {
+                                    app.archived_ids.insert(id);
+                                }
+                                cs_log!("archive: added {} sessions (+children), total={}", count, app.archived_ids.len());
                                 ui::save_archive(&app.archived_ids);
                                 app.update_filtered();
                             }
@@ -227,17 +231,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.update_filtered();
                             }
                             KeyCode::Char('R') if app.viewing_archive => {
-                                let count = if !app.selected_ids.is_empty() {
-                                    let c = app.selected_ids.len();
-                                    for id in app.selected_ids.drain() {
-                                        app.archived_ids.remove(&id);
-                                    }
-                                    c
+                                let mut to_unarchive: Vec<String> = Vec::new();
+                                if !app.selected_ids.is_empty() {
+                                    to_unarchive.extend(app.selected_ids.drain());
                                 } else if let Some(s) = app.selected_session() {
-                                    app.archived_ids.remove(&s.id.clone());
-                                    1
-                                } else { 0 };
-                                cs_log!("archive: removed {} sessions, total={}", count, app.archived_ids.len());
+                                    to_unarchive.push(s.id.clone());
+                                }
+                                // Also unarchive child agents by scanning filesystem
+                                let children: Vec<String> = to_unarchive.iter()
+                                    .flat_map(|id| ui::find_child_agent_ids(id))
+                                    .collect();
+                                let count = to_unarchive.len();
+                                for id in to_unarchive.into_iter().chain(children) {
+                                    app.archived_ids.remove(&id);
+                                }
+                                cs_log!("archive: removed {} sessions (+children), total={}", count, app.archived_ids.len());
                                 ui::save_archive(&app.archived_ids);
                                 app.update_filtered();
                             }
