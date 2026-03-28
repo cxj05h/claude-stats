@@ -28,9 +28,9 @@ Every session shows input, output, cache read, and cache write tokens. The detai
 
 ### Jump into any session with one key
 
-Press `c` in the detail view and claude-stats opens that session in a **new terminal tab** via `claude --resume`, launched from the correct working directory. claude-stats stays running so you can keep browsing. Auto-detects your terminal (iTerm2, Terminal.app, Warp, tmux, zellij) and uses the right API to create the tab. Press `C` (shift) for the legacy behavior that replaces the current process.
+Press `K` on either the session list or detail view and claude-stats will **focus the terminal tab** where that session is already running. It scans running `claude` processes in the background and maps them to sessions via PID/TTY matching -- so when you press the key, the switch is instant. Sessions with a running process show a blue `◆` indicator in the list. If the session isn't running anywhere, `K` falls back to opening it in a new tab.
 
-If your terminal isn't auto-detected, run `claude-stats --config-terminal` to set it up manually — including a custom command template for unsupported terminals.
+Press `c` in the detail view to always open a **new terminal tab** via `claude --resume`. Press `C` (shift) for the legacy behavior that replaces the current process. Auto-detects your terminal (iTerm2, Terminal.app, Warp, tmux, zellij). Run `claude-stats --config-terminal` to configure manually.
 
 ### Track agent sessions
 
@@ -55,7 +55,7 @@ Two indicators appear next to session titles when action is needed:
 - **👋** -- Claude responded and is waiting for your input. Auto-clears after 1 hour or when you view the session details.
 - **⏳** -- A permission prompt, question, or multiselect is waiting for your approval. The session title turns red. Clears automatically when you respond in Claude Code, or when you view the session details.
 
-Both indicators appear on the sessions screen and the session details page. Press `X` (shift) on the sessions screen to clear all indicators at once. Agent sessions never show indicators.
+Both indicators appear on the sessions screen and the session details page. Press `X` to clear the indicator on the selected row, or `C` to clear all indicators at once. Agent sessions never show indicators.
 
 ### Spot live sessions
 
@@ -107,7 +107,9 @@ From the detail view, press `c` to open that session in a new terminal tab. clau
 |-----|--------|
 | `Up` / `Down` | Navigate sessions |
 | `Left` / `Right` | Cycle info tabs (Branch / Path / Models) |
-| `X` | Clear all waiting indicators |
+| `K` | Focus running session tab (or open new tab) |
+| `X` | Clear indicator on selected row |
+| `C` | Clear all waiting indicators |
 | `Enter` | Open session detail |
 | Type anything | Fuzzy search sessions |
 | `Backspace` | Delete search character |
@@ -124,6 +126,7 @@ From the detail view, press `c` to open that session in a new terminal tab. clau
 | `Left` / `Right` | Previous / next session |
 | `Enter` | Expand/collapse all tool diffs |
 | `f` | Toggle fullscreen chat |
+| `K` | Focus running session tab (or open new tab) |
 | `c` | Open session in new terminal tab |
 | `C` | Resume session here (replaces claude-stats) |
 | `/` | Search within chat |
