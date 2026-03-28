@@ -86,10 +86,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             KeyCode::Enter => {
                                 if !app.filtered_indices.is_empty() {
-                                    // Mark session as seen to dismiss waiting indicator
-                                    if let Some(s) = app.selected_session() {
-                                        app.seen_sessions.insert(s.id.clone(), s.turns);
-                                    }
                                     app.mode = AppMode::Detail;
                                 }
                             }
@@ -146,6 +142,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 } else if app.chat_fullscreen {
                                     app.chat_fullscreen = false;
                                 } else {
+                                    // Dismiss indicator on the session we're leaving
+                                    if let Some(s) = app.selected_session() {
+                                        app.seen_sessions.insert(s.id.clone(), s.turns);
+                                    }
                                     app.mode = AppMode::List;
                                     app.detail_scroll = 0;
                                 }
@@ -240,18 +240,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             KeyCode::Left => {
+                                // Dismiss indicator on session we're leaving
+                                if let Some(s) = app.selected_session() {
+                                    app.seen_sessions.insert(s.id.clone(), s.turns);
+                                }
                                 app.move_cursor(-1);
                                 app.detail_scroll = 0;
-                                if let Some(s) = app.selected_session() {
-                                    app.seen_sessions.insert(s.id.clone(), s.turns);
-                                }
                             }
                             KeyCode::Right => {
-                                app.move_cursor(1);
-                                app.detail_scroll = 0;
+                                // Dismiss indicator on session we're leaving
                                 if let Some(s) = app.selected_session() {
                                     app.seen_sessions.insert(s.id.clone(), s.turns);
                                 }
+                                app.move_cursor(1);
+                                app.detail_scroll = 0;
                             }
                             KeyCode::Char('m') => {
                                 // Toggle mouse capture for text selection

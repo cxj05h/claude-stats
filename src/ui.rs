@@ -252,6 +252,29 @@ impl App {
             .and_then(|&idx| self.store.sessions.get(idx))
     }
 
+    /// Returns the waiting indicator string for a session, or None if dismissed/expired/agent.
+    pub fn effective_indicator(&self, s: &Session) -> Option<&'static str> {
+        if s.parent_session_id.is_some() {
+            return None; // never show on agents
+        }
+        let is_dismissed = self.seen_sessions.get(&s.id)
+            .map(|&dismissed_turns| dismissed_turns == s.turns)
+            .unwrap_or(false);
+        if is_dismissed {
+            return None;
+        }
+        match &s.waiting_state {
+            WaitingState::WaitingForInput => {
+                let within_hour = s.end_ts
+                    .map(|ts| chrono::Utc::now().signed_duration_since(ts).num_seconds() < 3600)
+                    .unwrap_or(false);
+                if within_hour { Some(" 👋") } else { None }
+            }
+            WaitingState::WaitingForPermission => Some(" ⏳"),
+            WaitingState::None => None,
+        }
+    }
+
     pub fn reload_sessions(&mut self) {
         // Remember currently selected session ID to restore position
         let selected_id = self.selected_session().map(|s| s.id.clone());
@@ -389,28 +412,8 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 s.title.clone()
             };
 
-            // Determine waiting indicator (never show on agent sessions)
-            let is_dismissed = app.seen_sessions.get(&s.id)
-                .map(|&dismissed_turns| dismissed_turns == s.turns)
-                .unwrap_or(false);
-            let indicator = if is_agent || is_dismissed {
-                None
-            } else {
-                match &s.waiting_state {
-                    WaitingState::WaitingForInput => {
-                        // Only show 👋 if end_ts is within last hour
-                        let within_hour = s.end_ts
-                            .map(|ts| {
-                                let age = chrono::Utc::now().signed_duration_since(ts);
-                                age.num_seconds() < 3600
-                            })
-                            .unwrap_or(false);
-                        if within_hour { Some(" 👋") } else { None }
-                    }
-                    WaitingState::WaitingForPermission => Some(" ⏳"),
-                    WaitingState::None => None,
-                }
-            };
+            // Determine waiting indicator
+            let indicator = app.effective_indicator(s);
 
             let has_indicator = indicator.is_some();
             let max_title_len = if has_indicator { 25 } else { 28 };
@@ -427,8 +430,7 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 }
             };
 
-            let is_permission_waiting = !is_dismissed
-                && s.waiting_state == WaitingState::WaitingForPermission;
+            let is_permission_waiting = indicator == Some(" ⏳");
 
             let title_style = if is_selected {
                 Style::default().fg(Color::White).bold()
@@ -606,6 +608,7 @@ fn draw_list(f: &mut Frame, app: &mut App) {
 }
 
 fn draw_detail(f: &mut Frame, app: &mut App) {
+    let detail_indicator = app.selected_session().and_then(|s| app.effective_indicator(s));
     let session = match app.selected_session() {
         Some(s) => s.clone(),
         None => return,
@@ -631,13 +634,21 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
             .split(area);
 
         // Header
+        let ind_suffix = detail_indicator.unwrap_or("");
         let title_text = if is_live {
-            format!(" ● {} (live)", session.title)
+            format!(" ● {} (live){}", session.title, ind_suffix)
         } else {
-            format!(" {}", session.title)
+            format!(" {}{}", session.title, ind_suffix)
+        };
+        let title_color = if is_live {
+            Color::Green
+        } else if detail_indicator == Some(" ⏳") {
+            Color::Red
+        } else {
+            Color::Yellow
         };
         f.render_widget(Paragraph::new(Line::from(
-            Span::styled(title_text, Style::default().bold().fg(if is_live { Color::Green } else { Color::Yellow }))
+            Span::styled(title_text, Style::default().bold().fg(title_color))
         )), chunks[0]);
 
         // Chat + mascot
@@ -706,13 +717,21 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
         .split(area);
 
     // ── Header ──
+    let ind_suffix = detail_indicator.unwrap_or("");
     let title_text = if is_live {
-        format!("  ● {} (live)", session.title)
+        format!("  ● {} (live){}", session.title, ind_suffix)
     } else {
-        format!("  {}", session.title)
+        format!("  {}{}", session.title, ind_suffix)
+    };
+    let title_color = if is_live {
+        Color::Green
+    } else if detail_indicator == Some(" ⏳") {
+        Color::Red
+    } else {
+        Color::Yellow
     };
     let header = Paragraph::new(Line::from(vec![
-        Span::styled(title_text, Style::default().bold().fg(if is_live { Color::Green } else { Color::Yellow })),
+        Span::styled(title_text, Style::default().bold().fg(title_color)),
     ]))
     .block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(LABEL)));
     f.render_widget(header, chunks[0]);
