@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = SessionStore::load();
     let mut app = App::new(store);
 
-    // Main loop — reload sessions every ~3 seconds (30 ticks at 100ms)
+    // Main loop — reload sessions every ~1.5s (15 ticks at ~100ms)
     'main: loop {
         if quit_signal.load(Ordering::Relaxed) {
             break;
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.tick += 1;
         app.mascot.update();
 
-        if app.tick.is_multiple_of(30) {
+        if app.tick.is_multiple_of(15) {
             app.reload_sessions();
         }
 
