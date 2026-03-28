@@ -389,11 +389,11 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 s.title.clone()
             };
 
-            // Determine waiting indicator
+            // Determine waiting indicator (never show on agent sessions)
             let is_dismissed = app.seen_sessions.get(&s.id)
                 .map(|&dismissed_turns| dismissed_turns == s.turns)
                 .unwrap_or(false);
-            let indicator = if is_dismissed {
+            let indicator = if is_agent || is_dismissed {
                 None
             } else {
                 match &s.waiting_state {
