@@ -318,8 +318,15 @@ pub fn scan_claude_processes(sessions: &[(String, String, i64)]) -> HashMap<Stri
                 }
 
                 // Strategy 3/4: CWD matching
+                // Compare encoded CWD to the project directory name in the file path
+                // exactly — not substring. File paths look like:
+                //   ~/.claude/projects/{encoded_project_dir}/{session-id}.jsonl
+                // Substring matching caused /Users/chrisjones to match every project.
                 if let Some(ref cwd) = info.cwd {
-                    if cwd == "/" { continue; }
+                    let home = dirs::home_dir().unwrap_or_default();
+                    if cwd == "/" || cwd.as_str() == home.to_string_lossy().as_ref() {
+                        continue;
+                    }
                     let normalized = if let Some(idx) = cwd.find("/.claude/worktrees/") {
                         &cwd[..idx]
                     } else {
@@ -328,7 +335,16 @@ pub fn scan_claude_processes(sessions: &[(String, String, i64)]) -> HashMap<Stri
                     let encoded_cwd = normalized.replace('/', "-");
 
                     let matches: Vec<&(String, String, i64)> = sessions.iter()
-                        .filter(|(sid, fp, _)| fp.contains(&encoded_cwd) && !map.contains_key(sid))
+                        .filter(|(sid, fp, _)| {
+                            if map.contains_key(sid) { return false; }
+                            // Extract project dir from file path: parent directory name
+                            let project_dir = std::path::Path::new(fp.as_str())
+                                .parent()
+                                .and_then(|p| p.file_name())
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("");
+                            project_dir == encoded_cwd
+                        })
                         .collect();
 
                     let confidence = if matches.len() == 1 {
