@@ -196,9 +196,12 @@ pub struct App {
 
 impl App {
     pub fn new(store: SessionStore) -> Self {
-        let count = store.sessions.len();
-        let filtered_indices: Vec<usize> = (0..count).collect();
-        App {
+        let archived = load_archive();
+        // Pre-filter: exclude archived sessions from initial view
+        let filtered_indices: Vec<usize> = (0..store.sessions.len())
+            .filter(|i| !archived.contains(&store.sessions[*i].id))
+            .collect();
+        let app = App {
             store,
             mode: AppMode::List,
             cursor: 0,
@@ -225,13 +228,14 @@ impl App {
             chat_inner_h: 0,
             chat_max_scroll: 0,
             seen_sessions: std::collections::HashMap::new(),
-            archived_ids: load_archive(),
+            archived_ids: archived,
             viewing_archive: false,
             selected_ids: std::collections::HashSet::new(),
             status_message: None,
             process_map: std::collections::HashMap::new(),
             our_tty: crate::terminal::current_tty(),
-        }
+        };
+        app
     }
 
     pub fn move_cursor(&mut self, delta: i32) {
@@ -447,7 +451,11 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             let is_live = current_sid.map(|c| c == s.id).unwrap_or(false);
 
             let is_agent = s.parent_session_id.is_some();
-            let is_running = !is_agent && app.process_map.contains_key(&s.id);
+            let process_info = if !is_agent { app.process_map.get(&s.id) } else { None };
+            let is_running = process_info.is_some();
+            let is_low_confidence = process_info
+                .map(|p| p.confidence == crate::terminal::MatchConfidence::Low)
+                .unwrap_or(false);
             let is_multi = app.selected_ids.contains(&s.id);
             let marker = if is_selected && is_live {
                 "▶●"
@@ -459,8 +467,10 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 " ✓"
             } else if is_live {
                 " ●"
-            } else if is_running {
+            } else if is_running && !is_low_confidence {
                 " ◆"
+            } else if is_running {
+                " ◇"
             } else {
                 "  "
             };

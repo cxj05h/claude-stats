@@ -20,24 +20,31 @@ use ui::{App, AppMode};
 fn focus_or_open_session(app: &mut App) {
     let Some(s) = app.selected_session() else { return };
     let sid = s.id.clone();
+    let title = s.title.clone();
     let turns = s.turns;
     let cwd = s.cwd.replace("~", &dirs::home_dir().unwrap_or_default().to_string_lossy());
     // Dismiss waiting indicator — user is engaging with this session
     app.seen_sessions.insert(sid.clone(), turns);
 
+    cs_log!("focus_or_open: session={} title={} cwd={}", &sid[..sid.len().min(12)], title, cwd);
+
     if let Some(info) = app.process_map.get(&sid) {
+        cs_log!("focus_or_open: found process pid={} tty={} confidence={:?} our_tty={:?}", info.pid, info.tty, info.confidence, app.our_tty);
         // Check if this session is running in our own terminal tab
         if let Some(ref our_tty) = app.our_tty {
             if info.tty == *our_tty {
+                cs_log!("focus_or_open: same tty, skipping");
                 app.status_message = Some(("Session is in this terminal".into(), std::time::Instant::now()));
                 return;
             }
         }
         match crate::terminal::focus_tab_by_tty(&info.tty) {
             Ok(()) => {
+                cs_log!("focus_or_open: focused tty={}", info.tty);
                 app.status_message = Some(("Focused session tab".into(), std::time::Instant::now()));
             }
-            Err(_) => {
+            Err(e) => {
+                cs_log!("focus_or_open: focus failed ({}), opening new tab", e);
                 match crate::terminal::open_in_new_tab(&sid, &cwd) {
                     Ok(()) => app.status_message = Some(("Opened in new tab".into(), std::time::Instant::now())),
                     Err(e) => app.status_message = Some((e, std::time::Instant::now())),
@@ -45,6 +52,7 @@ fn focus_or_open_session(app: &mut App) {
             }
         }
     } else {
+        cs_log!("focus_or_open: no process found, opening new tab. process_map has {} entries", app.process_map.len());
         match crate::terminal::open_in_new_tab(&sid, &cwd) {
             Ok(()) => app.status_message = Some(("Not running — opened new tab".into(), std::time::Instant::now())),
             Err(e) => app.status_message = Some((e, std::time::Instant::now())),

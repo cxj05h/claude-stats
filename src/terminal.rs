@@ -165,11 +165,18 @@ end tell"#,
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum MatchConfidence {
+    Direct, // --resume arg or task dir open
+    High,   // CWD match, unique session for that project
+    Low,    // CWD match, multiple sessions share this CWD
+}
+
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
-    #[allow(dead_code)]
     pub pid: u32,
     pub tty: String,
+    pub confidence: MatchConfidence,
 }
 
 /// Get the TTY of the current process (for self-detection).
@@ -182,14 +189,19 @@ pub fn current_tty() -> Option<String> {
     if tty.is_empty() || tty == "??" { None } else { Some(tty) }
 }
 
+/// Per-PID info extracted from lsof output.
+struct LsofPidInfo {
+    cwd: Option<String>,
+    task_uuid: Option<String>,
+}
+
 /// Scan running claude processes and map session_id → ProcessInfo.
 ///
-/// Two strategies:
-/// 1. `--resume <id>` in args → direct session ID extraction
-/// 2. Bare `claude` processes → match CWD to session file paths
-///
-/// The `sessions` parameter provides known sessions for CWD matching:
-/// `(session_id, file_path, end_ts_epoch)` sorted most-recent-first.
+/// Multi-signal confidence matching:
+/// 1. `--resume <id>` in args → Direct
+/// 2. Task dir open `~/.claude/tasks/{uuid}` → Direct (uuid = session ID)
+/// 3. CWD match, unique session → High
+/// 4. CWD match, multiple sessions → Low (pick by most recent end_ts)
 pub fn scan_claude_processes(sessions: &[(String, String, i64)]) -> HashMap<String, ProcessInfo> {
     let mut map = HashMap::new();
 
@@ -202,76 +214,135 @@ pub fn scan_claude_processes(sessions: &[(String, String, i64)]) -> HashMap<Stri
         _ => return map,
     };
 
-    let mut claude_pids: Vec<(u32, String, String)> = Vec::new(); // (pid, tty, args)
+    let mut claude_pids: Vec<(u32, String)> = Vec::new(); // (pid, tty)
     let stdout = String::from_utf8_lossy(&output.stdout);
     for line in stdout.lines().skip(1) {
-        // Split on whitespace runs (handles variable padding from ps)
         let tokens: Vec<&str> = line.split_whitespace().collect();
-        if tokens.len() < 4 {
-            continue;
-        }
-        let pid: u32 = match tokens[0].parse() {
-            Ok(p) => p,
-            Err(_) => continue,
-        };
+        if tokens.len() < 4 { continue; }
+        let pid: u32 = match tokens[0].parse() { Ok(p) => p, Err(_) => continue };
         let tty = tokens[1];
         let comm = tokens[2];
-        // args is everything from token 3 onward (rejoined)
         let args = tokens[3..].join(" ");
 
-        // Only actual claude processes with a real TTY
-        if comm != "claude" || tty == "??" || tty == "-" {
-            continue;
-        }
+        if comm != "claude" || tty == "??" || tty == "-" { continue; }
 
-        // Strategy 1: --resume <id> in args
+        // Strategy 1: --resume <id> in args → Direct
         if let Some(pos) = args.find("--resume") {
             let after = &args[pos + "--resume".len()..].trim_start();
             if let Some(session_id) = after.split_whitespace().next() {
                 if !session_id.is_empty() {
-                    map.insert(session_id.to_string(), ProcessInfo { pid, tty: tty.to_string() });
+                    map.insert(session_id.to_string(), ProcessInfo {
+                        pid, tty: tty.to_string(), confidence: MatchConfidence::Direct,
+                    });
                     continue;
                 }
             }
         }
 
-        // Collect for CWD-based matching
-        claude_pids.push((pid, tty.to_string(), args));
+        claude_pids.push((pid, tty.to_string()));
     }
 
-    // Step 2: For bare `claude` processes, get CWDs via lsof
+    // Step 2: For bare `claude` processes, get ALL open files via lsof
     if !claude_pids.is_empty() && !sessions.is_empty() {
-        let pid_args: Vec<String> = claude_pids.iter().map(|(pid, _, _)| format!("-p{}", pid)).collect();
-        let mut lsof_args = vec!["-d".to_string(), "cwd".to_string(), "-Fn".to_string()];
-        lsof_args.extend(pid_args);
+        let pid_list = claude_pids.iter()
+            .map(|(pid, _)| pid.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let lsof_args = ["-a", "-Fn", "-d", "cwd,10-25", &format!("-p{}", pid_list)];
 
         if let Ok(output) = Command::new("lsof").args(&lsof_args).output() {
             let lsof_out = String::from_utf8_lossy(&output.stdout);
+
+            // Parse lsof output into per-PID info
+            let mut pid_info: HashMap<u32, LsofPidInfo> = HashMap::new();
             let mut current_pid: Option<u32> = None;
+            let mut is_cwd_fd = false;
+
+            let tasks_prefix = dirs::home_dir()
+                .map(|h| format!("{}/.claude/tasks/", h.display()))
+                .unwrap_or_default();
 
             for line in lsof_out.lines() {
                 if let Some(pid_str) = line.strip_prefix('p') {
                     current_pid = pid_str.parse().ok();
+                    is_cwd_fd = false;
+                    if let Some(pid) = current_pid {
+                        pid_info.entry(pid).or_insert(LsofPidInfo {
+                            cwd: None, task_uuid: None,
+                        });
+                    }
+                } else if line.starts_with('f') {
+                    is_cwd_fd = line == "fcwd";
                 } else if let Some(path) = line.strip_prefix('n') {
                     if let Some(pid) = current_pid {
-                        // Find the matching claude_pid entry
-                        if let Some((_, tty, _)) = claude_pids.iter().find(|(p, _, _)| *p == pid) {
-                            // Match CWD to the most recent session from that project.
-                            // Sessions are sorted most-recent-first, so first match wins.
-                            // Strip .claude/worktrees/<name> suffix — worktree CWDs
-                            // won't match the project-root-based session paths otherwise.
-                            let normalized = if let Some(idx) = path.find("/.claude/worktrees/") {
-                                &path[..idx]
-                            } else {
-                                path
-                            };
-                            let encoded_cwd = normalized.replace('/', "-");
-                            if let Some((session_id, _, _)) = sessions.iter()
-                                .find(|(sid, fp, _)| fp.contains(&encoded_cwd) && !map.contains_key(sid))
-                            {
-                                map.insert(session_id.clone(), ProcessInfo { pid, tty: tty.clone() });
+                        let info = pid_info.entry(pid).or_insert(LsofPidInfo {
+                            cwd: None, task_uuid: None,
+                        });
+
+                        // CWD
+                        if is_cwd_fd {
+                            info.cwd = Some(path.to_string());
+                            is_cwd_fd = false;
+                        }
+
+                        // Task dir: ~/.claude/tasks/{uuid}
+                        if info.task_uuid.is_none() {
+                            if let Some(rest) = path.strip_prefix(&tasks_prefix) {
+                                // rest might be the UUID or UUID/subpath
+                                let uuid = rest.split('/').next().unwrap_or("");
+                                if !uuid.is_empty() && uuid.contains('-') {
+                                    info.task_uuid = Some(uuid.to_string());
+                                }
                             }
                         }
+                    }
+                }
+            }
+
+            // Step 3: Match in priority order
+            let session_ids: std::collections::HashSet<&str> = sessions.iter()
+                .map(|(sid, _, _)| sid.as_str())
+                .collect();
+
+            for (pid, tty) in &claude_pids {
+                let Some(info) = pid_info.get(pid) else { continue };
+
+                // Strategy 2: Task dir → Direct match
+                if let Some(ref uuid) = info.task_uuid {
+                    if session_ids.contains(uuid.as_str()) && !map.contains_key(uuid) {
+                        map.insert(uuid.clone(), ProcessInfo {
+                            pid: *pid, tty: tty.clone(), confidence: MatchConfidence::Direct,
+                        });
+                        continue;
+                    }
+                }
+
+                // Strategy 3/4: CWD matching
+                if let Some(ref cwd) = info.cwd {
+                    if cwd == "/" { continue; }
+                    let normalized = if let Some(idx) = cwd.find("/.claude/worktrees/") {
+                        &cwd[..idx]
+                    } else {
+                        cwd.as_str()
+                    };
+                    let encoded_cwd = normalized.replace('/', "-");
+
+                    let matches: Vec<&(String, String, i64)> = sessions.iter()
+                        .filter(|(sid, fp, _)| fp.contains(&encoded_cwd) && !map.contains_key(sid))
+                        .collect();
+
+                    let confidence = if matches.len() == 1 {
+                        MatchConfidence::High
+                    } else {
+                        MatchConfidence::Low
+                    };
+
+                    if let Some((session_id, _, _)) = matches.iter()
+                        .max_by_key(|(_, _, end_ts)| *end_ts)
+                    {
+                        map.insert(session_id.clone(), ProcessInfo {
+                            pid: *pid, tty: tty.clone(), confidence,
+                        });
                     }
                 }
             }
