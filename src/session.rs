@@ -4,6 +4,13 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum WaitingState {
+    None,
+    WaitingForInput,      // 👋 end_turn, no user text response yet
+    WaitingForPermission, // ⏳ tool_use, no tool_result yet
+}
+
 #[derive(Debug, Clone)]
 pub struct ContextBreakdown {
     pub system_plugins_skills: u64, // system prompts, CLAUDE.md, plugins, skills
@@ -40,6 +47,7 @@ pub struct Session {
     pub context_breakdown: ContextBreakdown,
     pub parent_session_id: Option<String>, // for agent subagents
     pub compressions: Vec<usize>,            // turn indices where context was compressed
+    pub waiting_state: WaitingState,
 }
 
 pub fn context_window_for_model(model: &str) -> u64 {
@@ -254,6 +262,7 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
         messages: Vec::new(),
         parent_session_id: parent_id,
         compressions: Vec::new(),
+        waiting_state: WaitingState::None,
         context_breakdown: ContextBreakdown {
             system_plugins_skills: 0,
             user_messages: 0,
@@ -262,6 +271,8 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
             images: 0,
         },
     };
+
+    let mut waiting_state = WaitingState::None;
 
     for line in content.lines() {
         let entry: Value = match serde_json::from_str(line) {
@@ -344,6 +355,7 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                                             let cleaned = strip_xml_tags(&text.chars().take(2000).collect::<String>());
                                             let trimmed = cleaned.trim();
                                             if !trimmed.is_empty() && !trimmed.contains("Caveat: The messages below") {
+                                                waiting_state = WaitingState::None; // real user text
                                                 session.messages.push(MessageInfo {
                                                     role: "user".into(),
                                                     block: ContentBlock::Text(trimmed.to_string()),
@@ -353,6 +365,9 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                                     }
                                 }
                                 "tool_result" => {
+                                    if waiting_state == WaitingState::WaitingForPermission {
+                                        waiting_state = WaitingState::None;
+                                    }
                                     let size = block.to_string().len() as u64 / 4;
                                     session.context_breakdown.tool_results += size;
                                     // Extract tool result content
@@ -377,6 +392,7 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                         let cleaned = strip_xml_tags(&s.chars().take(2000).collect::<String>());
                         let trimmed = cleaned.trim();
                         if !trimmed.is_empty() {
+                            waiting_state = WaitingState::None; // real user text
                             let size = (s.len() as u64) / 4;
                             session.context_breakdown.user_messages += size;
                             session.messages.push(MessageInfo {
@@ -400,6 +416,13 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                         }
                         session.model = m.to_string();
                     }
+                }
+
+                // Waiting state from stop_reason
+                match msg.get("stop_reason").and_then(|v| v.as_str()) {
+                    Some("end_turn") => waiting_state = WaitingState::WaitingForInput,
+                    Some("tool_use") => waiting_state = WaitingState::WaitingForPermission,
+                    _ => {}
                 }
 
                 // Usage
@@ -489,6 +512,8 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
         }
     }
 
+    session.waiting_state = waiting_state;
+
     if session.turns == 0 {
         return None;
     }
@@ -527,9 +552,9 @@ impl SessionStore {
         // Sort by modification time, most recent first
         files.sort_by(|a, b| b.1.cmp(&a.1));
 
-        // Load max 30 most recent sessions
+        // Load max 40 most recent sessions
         for (path, _) in files {
-            if sessions.len() >= 30 {
+            if sessions.len() >= 40 {
                 break;
             }
             let id = match path.file_stem().and_then(|s| s.to_str()) {

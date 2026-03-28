@@ -86,7 +86,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             KeyCode::Enter => {
                                 if !app.filtered_indices.is_empty() {
+                                    // Mark session as seen to dismiss waiting indicator
+                                    if let Some(s) = app.selected_session() {
+                                        app.seen_sessions.insert(s.id.clone());
+                                    }
                                     app.mode = AppMode::Detail;
+                                }
+                            }
+                            KeyCode::Char('X') => {
+                                // Clear all waiting indicators
+                                let ids: Vec<String> = app.filtered_indices.iter()
+                                    .filter_map(|&idx| app.store.sessions.get(idx))
+                                    .map(|s| s.id.clone())
+                                    .collect();
+                                for id in ids {
+                                    app.seen_sessions.insert(id);
                                 }
                             }
                             KeyCode::Char(c) => {

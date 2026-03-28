@@ -4,7 +4,7 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, CodeBlockKind};
 use ratatui::{prelude::*, widgets::*};
 use std::time::{Duration, Instant};
 
-use crate::session::{fmt_ago, fmt_duration, fmt_tokens, friendly_mcp_name, short_model, Session, SessionStore};
+use crate::session::{fmt_ago, fmt_duration, fmt_tokens, friendly_mcp_name, short_model, Session, SessionStore, WaitingState};
 
 use crate::session::context_window_for_model;
 
@@ -162,6 +162,7 @@ pub struct App {
     pub chat_inner_h: usize,              // visible chat height (set by draw)
     pub mouse_captured: bool,             // whether mouse events are captured (vs terminal selection)
     pub chat_max_scroll: usize,           // max valid detail_scroll (set by draw)
+    pub seen_sessions: std::collections::HashSet<String>, // sessions where user viewed detail (clears indicator)
 }
 
 impl App {
@@ -194,6 +195,7 @@ impl App {
             chat_total_lines: 0,
             chat_inner_h: 0,
             chat_max_scroll: 0,
+            seen_sessions: std::collections::HashSet::new(),
         }
     }
 
@@ -222,7 +224,7 @@ impl App {
 
     pub fn update_filtered(&mut self) {
         if self.search_query.is_empty() {
-            self.filtered_indices = (0..self.store.sessions.len().min(30)).collect();
+            self.filtered_indices = (0..self.store.sessions.len().min(40)).collect();
         } else {
             let query = &self.search_query;
             let mut scored: Vec<(i64, usize)> = self
@@ -255,6 +257,22 @@ impl App {
         let selected_id = self.selected_session().map(|s| s.id.clone());
 
         self.store = SessionStore::load();
+
+        // Clean up seen_sessions: remove entries for sessions no longer waiting
+        // so future indicators can reappear
+        let no_longer_waiting: Vec<String> = self.seen_sessions.iter()
+            .filter(|id| {
+                self.store.sessions.iter()
+                    .find(|s| &s.id == *id)
+                    .map(|s| s.waiting_state == WaitingState::None)
+                    .unwrap_or(true) // session gone = remove
+            })
+            .cloned()
+            .collect();
+        for id in no_longer_waiting {
+            self.seen_sessions.remove(&id);
+        }
+
         self.update_filtered();
 
         // Try to restore cursor to same session
@@ -369,15 +387,51 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             } else {
                 s.title.clone()
             };
-            let title = if raw_title.len() > 28 {
-                format!("{}…", &raw_title[..27])
+
+            // Determine waiting indicator
+            let indicator = if app.seen_sessions.contains(&s.id) {
+                None
             } else {
-                raw_title
+                match &s.waiting_state {
+                    WaitingState::WaitingForInput => {
+                        // Only show 👋 if end_ts is within last hour
+                        let within_hour = s.end_ts
+                            .map(|ts| {
+                                let age = chrono::Utc::now().signed_duration_since(ts);
+                                age.num_seconds() < 3600
+                            })
+                            .unwrap_or(false);
+                        if within_hour { Some(" 👋") } else { None }
+                    }
+                    WaitingState::WaitingForPermission => Some(" ⏳"),
+                    WaitingState::None => None,
+                }
             };
+
+            let has_indicator = indicator.is_some();
+            let max_title_len = if has_indicator { 25 } else { 28 };
+            let title = if raw_title.len() > max_title_len {
+                let truncated = format!("{}…", &raw_title[..max_title_len - 1]);
+                match indicator {
+                    Some(ind) => format!("{}{}", truncated, ind),
+                    None => truncated,
+                }
+            } else {
+                match indicator {
+                    Some(ind) => format!("{}{}", raw_title, ind),
+                    None => raw_title,
+                }
+            };
+
+            let is_permission_waiting = !app.seen_sessions.contains(&s.id)
+                && s.waiting_state == WaitingState::WaitingForPermission;
+
             let title_style = if is_selected {
                 Style::default().fg(Color::White).bold()
             } else if is_live {
                 Style::default().fg(Color::Green).bold()
+            } else if is_permission_waiting {
+                Style::default().fg(Color::Red).bold()
             } else if is_agent {
                 Style::default().fg(Color::White)
             } else {
@@ -445,13 +499,13 @@ fn draw_list(f: &mut Frame, app: &mut App) {
 
     let widths = [
         Constraint::Length(2),   // marker
-        Constraint::Min(20),     // title
-        Constraint::Length(12),  // model
+        Constraint::Min(20),     // title + indicators
+        Constraint::Length(10),  // model
         Constraint::Length(6),   // effort
         Constraint::Length(8),   // tokens (total)
         Constraint::Length(5),   // turns
-        Constraint::Length(14),  // mcps
-        Constraint::Length(10),  // when
+        Constraint::Length(12),  // mcps
+        Constraint::Length(9),   // when
         Constraint::Length(9),   // duration
     ];
 
@@ -539,6 +593,8 @@ fn draw_list(f: &mut Frame, app: &mut App) {
         Span::styled("search  ", Style::default().fg(LABEL)),
         Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
         Span::styled("quit  ", Style::default().fg(LABEL)),
+        Span::styled("X ", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled("clear  ", Style::default().fg(LABEL)),
         Span::styled("● ", Style::default().fg(Color::Green)),
         Span::styled("active", Style::default().fg(LABEL)),
     ]));
