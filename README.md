@@ -31,6 +31,12 @@ Two indicators appear next to session titles when action is needed:
 
 Both indicators appear on the sessions screen and the session details page. Press `X` to clear the indicator on the selected row, or `C` to clear all indicators at once. Agent sessions never show indicators.
 
+#### Jumping back to a waiting session
+
+**iTerm2 and tmux users:** Press `K` on any session with an indicator and claude-stats will instantly focus the terminal tab where that session is already running — no resume, no new process, just a direct tab switch. This is the best way to respond to a waiting session.
+
+**Other terminals:** If you're not on iTerm2 or tmux, `K` isn't available for tab focusing. You can use `c` (open in new tab) or `C` (open here) as a workaround to resume the session — but be aware of this Claude Code limitation: **if the session is showing a 👋 or ⏳ indicator, `--resume` will not replay Claude's last message.** You'll land in the session without seeing what Claude said or asked — you'd need to scroll up manually or check the detail view in claude-stats first to read it before resuming.
+
 ### Find any session instantly
 
 Start typing and claude-stats fuzzy-searches across session titles, project paths, and model names. Results filter in real time. No scrolling through history, no grepping JSONL files -- just type a few characters and the session you want floats to the top.
