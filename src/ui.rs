@@ -469,7 +469,7 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     // Info bar — shows details for selected session based on tab
     if let Some(&idx) = app.filtered_indices.get(app.cursor) {
         if let Some(s) = app.store.sessions.get(idx) {
-            let tab_labels = ["MCPs", "Path", "Models"];
+            let tab_labels = ["Branch", "Path", "Models"];
             let mut tab_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];
             for (i, label) in tab_labels.iter().enumerate() {
                 if i == app.list_info_tab {
@@ -482,13 +482,12 @@ fn draw_list(f: &mut Frame, app: &mut App) {
 
             let detail_text = match app.list_info_tab {
                 0 => {
-                    if s.mcp_tools.is_empty() {
-                        "No MCPs used".to_string()
+                    if s.git_branch.is_empty() {
+                        "No branch info".to_string()
+                    } else if let Some(name) = s.git_branch.strip_prefix("worktree-") {
+                        format!("\u{2387} \u{2294} {}", name)
                     } else {
-                        s.mcp_tools.iter()
-                            .map(|(name, count)| format!("{} ×{}", name, count))
-                            .collect::<Vec<_>>()
-                            .join("  ")
+                        format!("\u{2387} {}", s.git_branch)
                     }
                 }
                 1 => s.cwd.clone(),
@@ -516,7 +515,8 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 String::new()
             };
 
-            tab_spans.push(Span::styled(detail_text, Style::default().fg(PREVIEW)));
+            let detail_color = if app.list_info_tab == 0 { Color::Cyan } else { PREVIEW };
+            tab_spans.push(Span::styled(detail_text, Style::default().fg(detail_color)));
             if !parent_info.is_empty() {
                 tab_spans.push(Span::styled(parent_info, Style::default().fg(Color::Rgb(140, 120, 180))));
             }
