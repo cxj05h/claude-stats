@@ -189,6 +189,50 @@ pub fn current_tty() -> Option<String> {
     if tty.is_empty() || tty == "??" { None } else { Some(tty) }
 }
 
+/// Query iTerm2 for all tab TTYs and their display names.
+/// Returns a map of TTY (e.g. "ttys003") → cleaned session title.
+fn get_iterm_tab_names() -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let script = r#"tell application "iTerm2"
+    set output to ""
+    repeat with w in windows
+        repeat with t in tabs of w
+            repeat with s in sessions of t
+                set output to output & (tty of s) & "|||" & (name of s) & "
+"
+            end repeat
+        end repeat
+    end repeat
+    return output
+end tell"#;
+
+    let output = match Command::new("osascript").arg("-e").arg(script).output() {
+        Ok(o) if o.status.success() => o,
+        _ => return map,
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let Some((tty_raw, name)) = line.split_once("|||") else { continue };
+        // TTY: "/dev/ttys003" → "ttys003"
+        let tty = tty_raw.strip_prefix("/dev/").unwrap_or(tty_raw).to_string();
+        if tty.is_empty() { continue; }
+        // Clean name: strip spinner prefixes (✳, ⠐, ⠂, etc) and " (node)"/" (zsh)" suffix
+        let clean = name
+            .trim_start_matches(|c: char| !c.is_alphanumeric() && c != '/')
+            .trim_start()
+            .trim_end_matches(" (node)")
+            .trim_end_matches(" (zsh)")
+            .trim_end_matches(" (bash)")
+            .trim()
+            .to_string();
+        if !clean.is_empty() {
+            map.insert(tty, clean);
+        }
+    }
+    map
+}
+
 /// Per-PID info extracted from lsof output.
 struct LsofPidInfo {
     cwd: Option<String>,
@@ -199,10 +243,11 @@ struct LsofPidInfo {
 ///
 /// Multi-signal confidence matching:
 /// 1. `--resume <id>` in args → Direct
-/// 2. Task dir open `~/.claude/tasks/{uuid}` → Direct (uuid = session ID)
-/// 3. CWD match, unique session → High
-/// 4. CWD match, multiple sessions → Low (pick by most recent end_ts)
-pub fn scan_claude_processes(sessions: &[(String, String, i64)]) -> HashMap<String, ProcessInfo> {
+/// 2. iTerm2 tab name → session title match → Direct
+/// 3. Task dir open `~/.claude/tasks/{uuid}` → Direct (uuid = session ID)
+/// 4. CWD match, unique session → High
+/// 5. CWD match, multiple sessions → Low (pick by most recent end_ts)
+pub fn scan_claude_processes(sessions: &[(String, String, i64, String)]) -> HashMap<String, ProcessInfo> {
     let mut map = HashMap::new();
 
     // Step 1: Find all `claude` processes with a TTY
@@ -240,6 +285,32 @@ pub fn scan_claude_processes(sessions: &[(String, String, i64)]) -> HashMap<Stri
         }
 
         claude_pids.push((pid, tty.to_string()));
+    }
+
+    // Strategy 2: iTerm2 tab name → session title matching
+    if !claude_pids.is_empty() {
+        let tab_names = get_iterm_tab_names(); // tty → cleaned tab title
+        let mut matched_pids: Vec<u32> = Vec::new();
+
+        for (pid, tty) in &claude_pids {
+            if let Some(tab_title) = tab_names.get(tty.as_str()) {
+                // Find a session whose title matches this tab name (case-insensitive)
+                let tab_lower = tab_title.to_lowercase();
+                if let Some((sid, _, _, _)) = sessions.iter()
+                    .find(|(sid, _, _, title)| {
+                        !title.is_empty() && title.to_lowercase() == tab_lower && !map.contains_key(sid)
+                    })
+                {
+                    map.insert(sid.clone(), ProcessInfo {
+                        pid: *pid, tty: tty.clone(), confidence: MatchConfidence::Direct,
+                    });
+                    matched_pids.push(*pid);
+                }
+            }
+        }
+
+        // Remove matched PIDs so they don't go through lsof fallback
+        claude_pids.retain(|(pid, _)| !matched_pids.contains(pid));
     }
 
     // Step 2: For bare `claude` processes, get ALL open files via lsof
@@ -301,7 +372,7 @@ pub fn scan_claude_processes(sessions: &[(String, String, i64)]) -> HashMap<Stri
 
             // Step 3: Match in priority order
             let session_ids: std::collections::HashSet<&str> = sessions.iter()
-                .map(|(sid, _, _)| sid.as_str())
+                .map(|(sid, _, _, _)| sid.as_str())
                 .collect();
 
             for (pid, tty) in &claude_pids {
@@ -334,10 +405,9 @@ pub fn scan_claude_processes(sessions: &[(String, String, i64)]) -> HashMap<Stri
                     };
                     let encoded_cwd = normalized.replace('/', "-");
 
-                    let matches: Vec<&(String, String, i64)> = sessions.iter()
-                        .filter(|(sid, fp, _)| {
+                    let matches: Vec<&(String, String, i64, String)> = sessions.iter()
+                        .filter(|(sid, fp, _, _)| {
                             if map.contains_key(sid) { return false; }
-                            // Extract project dir from file path: parent directory name
                             let project_dir = std::path::Path::new(fp.as_str())
                                 .parent()
                                 .and_then(|p| p.file_name())
@@ -353,8 +423,8 @@ pub fn scan_claude_processes(sessions: &[(String, String, i64)]) -> HashMap<Stri
                         MatchConfidence::Low
                     };
 
-                    if let Some((session_id, _, _)) = matches.iter()
-                        .max_by_key(|(_, _, end_ts)| *end_ts)
+                    if let Some((session_id, _, _, _)) = matches.iter()
+                        .max_by_key(|(_, _, end_ts, _)| *end_ts)
                     {
                         map.insert(session_id.clone(), ProcessInfo {
                             pid: *pid, tty: tty.clone(), confidence,

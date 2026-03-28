@@ -104,10 +104,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if app.tick.is_multiple_of(50) {
             // Full reload every ~5s: re-scan files, pick up new/removed sessions
             app.reload_sessions();
-            let session_triples: Vec<(String, String, i64)> = app.store.sessions.iter()
-                .map(|s| (s.id.clone(), s.file_path.clone(), s.end_ts.map(|t| t.timestamp()).unwrap_or(0)))
+            let session_quads: Vec<(String, String, i64, String)> = app.store.sessions.iter()
+                .map(|s| (s.id.clone(), s.file_path.clone(), s.end_ts.map(|t| t.timestamp()).unwrap_or(0), s.title.clone()))
                 .collect();
-            app.process_map = terminal::scan_claude_processes(&session_triples);
+            app.process_map = terminal::scan_claude_processes(&session_quads);
         } else if app.tick.is_multiple_of(10) {
             // Fast refresh every ~1s: only read new bytes for waiting state
             app.fast_refresh();
