@@ -101,8 +101,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     app.mode = AppMode::Detail;
                                 }
                             }
-                            KeyCode::Char('X') => {
-                                // Clear all waiting indicators
+                            KeyCode::Char('x') if app.search_query.is_empty() => {
+                                // Clear indicator on selected row
+                                if let Some(s) = app.selected_session() {
+                                    app.seen_sessions.insert(s.id.clone(), s.turns);
+                                }
+                            }
+                            KeyCode::Char('X') | KeyCode::Char('C') => {
+                                // Clear all indicators
                                 let entries: Vec<(String, usize)> = app.filtered_indices.iter()
                                     .filter_map(|&idx| app.store.sessions.get(idx))
                                     .map(|s| (s.id.clone(), s.turns))

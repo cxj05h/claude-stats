@@ -611,8 +611,10 @@ fn draw_list(f: &mut Frame, app: &mut App) {
         Span::styled("search  ", Style::default().fg(LABEL)),
         Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
         Span::styled("quit  ", Style::default().fg(LABEL)),
-        Span::styled("X ", Style::default().fg(FOOTER_KEY).bold()),
-        Span::styled("clear  ", Style::default().fg(LABEL)),
+        Span::styled("x ", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled("clear row  ", Style::default().fg(LABEL)),
+        Span::styled("C ", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled("clear all  ", Style::default().fg(LABEL)),
         Span::styled("● ", Style::default().fg(Color::Green)),
         Span::styled("active", Style::default().fg(LABEL)),
     ]));
