@@ -162,6 +162,7 @@ pub struct App {
     pub chat_inner_h: usize,              // visible chat height (set by draw)
     pub mouse_captured: bool,             // whether mouse events are captured (vs terminal selection)
     pub chat_max_scroll: usize,           // max valid detail_scroll (set by draw)
+    pub status_message: Option<(String, std::time::Instant)>, // transient footer message
 }
 
 impl App {
@@ -194,6 +195,7 @@ impl App {
             chat_total_lines: 0,
             chat_inner_h: 0,
             chat_max_scroll: 0,
+            status_message: None,
         }
     }
 
@@ -926,29 +928,44 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
             Span::styled("clear  ", Style::default().fg(LABEL)),
             Span::styled(format!("({})", match_info), Style::default().fg(Color::Rgb(255, 160, 40))),
         ]))
+    } else if let Some((ref msg, when)) = app.status_message {
+        if when.elapsed().as_secs() < 3 {
+            Paragraph::new(Line::from(vec![
+                Span::styled(format!(" {} ", msg), Style::default().fg(Color::Rgb(100, 200, 140))),
+            ]))
+        } else {
+            app.status_message = None;
+            detail_footer_default(app)
+        }
     } else {
-        Paragraph::new(Line::from(vec![
-            Span::styled(" ↑↓", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("scroll ", Style::default().fg(LABEL)),
-            Span::styled("f", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("ullscreen ", Style::default().fg(LABEL)),
-            Span::styled("c", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("laude ", Style::default().fg(LABEL)),
-            Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("search ", Style::default().fg(LABEL)),
-            Span::styled("m", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled(if app.mouse_captured { "ouse " } else { "ouse:select " }, Style::default().fg(LABEL)),
-            Span::styled("←→", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("nav  ", Style::default().fg(LABEL)),
-            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("back", Style::default().fg(LABEL)),
-        ]))
+        detail_footer_default(app)
     };
     f.render_widget(footer, chunks[4]);
 }
 
 
 /// Highlight search matches in rendered lines. Returns indices of lines that contain matches.
+fn detail_footer_default(app: &App) -> Paragraph<'static> {
+    Paragraph::new(Line::from(vec![
+        Span::styled(" ↑↓", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled("scroll ", Style::default().fg(LABEL)),
+        Span::styled("f", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled("ullscreen ", Style::default().fg(LABEL)),
+        Span::styled("c", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled(" tab ", Style::default().fg(LABEL)),
+        Span::styled("C", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled(" here ", Style::default().fg(LABEL)),
+        Span::styled("/", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled("search ", Style::default().fg(LABEL)),
+        Span::styled("m", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled(if app.mouse_captured { "ouse " } else { "ouse:select " }, Style::default().fg(LABEL)),
+        Span::styled("←→", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled("nav  ", Style::default().fg(LABEL)),
+        Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+        Span::styled("back", Style::default().fg(LABEL)),
+    ]))
+}
+
 fn highlight_search_matches(lines: &mut Vec<Line<'_>>, query: &str, current_match_line: Option<usize>) -> Vec<usize> {
     let query_lower = query.to_lowercase();
     let highlight = Style::default().fg(Color::Black).bg(Color::Yellow);
