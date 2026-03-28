@@ -43,15 +43,16 @@ If clippy has warnings, fix them before proceeding. If the build fails, stop and
 
 ### 3. Install the binary
 
-Copy the fresh build so the installed version matches what's being shipped:
+Copy the fresh build so the installed version matches what's being shipped, then ensure the `cs` symlink points to it:
 
 ```bash
 cp target/release/claude-stats ~/.local/bin/claude-stats
 codesign --sign - ~/.local/bin/claude-stats
-ls -lh ~/.local/bin/claude-stats
+ln -sf ~/.local/bin/claude-stats ~/.local/bin/cs
+ls -lh ~/.local/bin/claude-stats ~/.local/bin/cs
 ```
 
-macOS kills unsigned binaries (exit 137) after they are replaced in-place. `codesign --sign -` applies an ad-hoc signature that satisfies Gatekeeper. Always run this after every `cp`. Do NOT use `--help` to verify — claude-stats is a TUI and has no `--help` flag; `ls -lh` confirms the file exists and was updated.
+macOS kills unsigned binaries (exit 137) after they are replaced in-place. `codesign --sign -` applies an ad-hoc signature that satisfies Gatekeeper. Always run this after every `cp`. The `ln -sf` keeps the `cs` symlink in sync so both `claude-stats` and `cs` invoke the same binary. Do NOT use `--help` to verify — claude-stats is a TUI and has no `--help` flag; `ls -lh` confirms the file exists and was updated.
 
 ### 4. Track new files
 

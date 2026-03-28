@@ -1,6 +1,6 @@
 ---
 name: cs-feature
-description: Manage feature branches and worktrees for claude-stats development. Use this skill whenever the user wants to start a new feature, create a branch or worktree, work on something new, or merge a feature branch back to main. Triggers on phrases like "new feature", "create a branch", "start working on", "worktree", "merge this back", "finish this feature", "feature branch", or any discussion of branching workflow for claude-stats.
+description: Manage feature branches and worktrees for claude-stats development. Use this skill whenever the user wants to start a new feature, create a branch or worktree, work on something new, or merge/finalize a feature branch back to main. Triggers on phrases like "new feature", "create a branch", "start working on", "worktree", "merge this back", "finish this feature", "finalize this feature", "finalize", "feature branch", or any discussion of branching workflow for claude-stats.
 ---
 
 # CS Feature
@@ -184,9 +184,11 @@ Tell the user:
 
 ---
 
-## Merge Mode
+## Merge Mode (Finalize)
 
-Use this when the user is done with a feature and wants to merge back to main. Trigger phrases: "finish", "merge", "land this", "done with this feature", "wrap this up", "ship it."
+Use this when the user is done with a feature and wants to merge back to main. Trigger phrases: "finalize", "finish", "merge", "land this", "done with this feature", "wrap this up."
+
+**This mode commits, merges, and cleans up — it does NOT build, install, or push. Shipping is a separate step (`/ready-ship`).**
 
 **CRITICAL: The shell cwd resets after every command. Always use absolute paths.**
 
@@ -211,28 +213,9 @@ If there are uncommitted changes, show them and ask the user for a commit messag
 cd /absolute/path/to/worktree && git add -A && git commit -m "<user-provided message>"
 ```
 
-Do NOT proceed to build until all work is committed.
+Do NOT proceed until all work is committed.
 
-### 3. Lint and build
-
-```bash
-cd /absolute/path/to/worktree && source ~/.cargo/env && cargo clippy 2>&1
-cd /absolute/path/to/worktree && cargo build --release
-```
-
-If clippy has errors or warnings, fix them and commit the fix before proceeding. If the build fails, stop — don't merge broken code into main.
-
-### 4. Install and verify the binary
-
-```bash
-cp /absolute/path/to/worktree/target/release/claude-stats ~/.local/bin/claude-stats
-codesign --sign - ~/.local/bin/claude-stats
-ls -lh ~/.local/bin/claude-stats
-```
-
-Always use the full absolute path. macOS kills unsigned binaries (exit 137) after they are replaced in-place — always run `codesign --sign -` immediately after `cp`. Do NOT use `--help` to verify; claude-stats is a TUI with no `--help` flag. `ls -lh` confirms the file was updated. Do NOT proceed to merge if the copy or sign fails.
-
-### 5. Review what's changing
+### 3. Review what's changing
 
 ```bash
 cd /absolute/path/to/worktree && git log main..HEAD --oneline
@@ -241,7 +224,7 @@ cd /absolute/path/to/worktree && git diff main..HEAD --stat
 
 Show the user the scope before merging. If the diff is larger than expected, pause and confirm.
 
-### 6. Check if main has diverged
+### 4. Check if main has diverged
 
 ```bash
 cd /Users/chrisjones/Documents/Projects/claude-stats && git fetch origin main
@@ -257,7 +240,7 @@ If main has new commits since the worktree was created:
 
 Never auto-pick a strategy — ask the user which they prefer.
 
-### 7. Exit the worktree session (if using EnterWorktree)
+### 5. Exit the worktree session (if using EnterWorktree)
 
 If this session was started with `EnterWorktree`, exit it first:
 
@@ -269,7 +252,7 @@ This returns `workspace.current_dir` to the main repo. The worktree directory st
 
 If the session was resumed by opening Claude Code inside the worktree directory, skip this step.
 
-### 8. Merge to main
+### 6. Merge to main
 
 ```bash
 cd /Users/chrisjones/Documents/Projects/claude-stats && git checkout main
@@ -281,20 +264,9 @@ Use `--no-ff` to preserve the branch history as a merge commit.
 
 **If there are merge conflicts**: Show the conflicting files, explain what's conflicting and why, and help resolve. Never use `--force` or `-X theirs/ours` without explicit user approval.
 
-### 9. Rebuild and verify from main
+### 7. Clean up
 
-```bash
-cd /Users/chrisjones/Documents/Projects/claude-stats && source ~/.cargo/env && cargo build --release
-cp /Users/chrisjones/Documents/Projects/claude-stats/target/release/claude-stats ~/.local/bin/claude-stats
-codesign --sign - ~/.local/bin/claude-stats
-ls -lh ~/.local/bin/claude-stats
-```
-
-Always run `codesign --sign -` immediately after `cp` — macOS kills unsigned binaries (exit 137) when a binary is replaced in-place. This catches merge issues that don't appear until after merging.
-
-### 10. Clean up
-
-**Always use `-D` (force delete), not `-d`**, for worktree branches. These branches are never pushed to origin, so git's `-d` always fails with "not fully merged" — even when the commit is safely on local main. `-D` skips the remote tracking check. It's safe because we verified the merge in steps 8–9.
+**Always use `-D` (force delete), not `-d`**, for worktree branches. These branches are never pushed to origin, so git's `-d` always fails with "not fully merged" — even when the commit is safely on local main. `-D` skips the remote tracking check. It's safe because we verified the merge in step 6.
 
 ```bash
 # If created with EnterWorktree:
@@ -314,11 +286,11 @@ git branch
 
 Confirm the worktree/branch is gone and we're on a clean main.
 
-### 11. Hand off to ready-ship
+### 8. Done
 
-"Feature merged to main. Use `/ready-ship` when you're ready to push to GitHub."
+Tell the user: "Feature merged and branch cleaned up. Use `/ready-ship` when you're ready to build, install, and push to GitHub."
 
-Don't push automatically — that's `/ready-ship`'s job.
+Do NOT build, install, or push — that's `/ready-ship`'s job.
 
 ---
 
