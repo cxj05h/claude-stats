@@ -1,4 +1,5 @@
 mod session;
+mod terminal;
 mod ui;
 
 use crossterm::{
@@ -15,6 +16,13 @@ use session::SessionStore;
 use ui::{App, AppMode};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // CLI arg: --config-terminal
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--config-terminal") {
+        terminal::run_config_terminal_flow();
+        return Ok(());
+    }
+
     // Setup terminal with mouse capture
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -180,12 +188,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.chat_fullscreen = !app.chat_fullscreen;
                             }
                             KeyCode::Char('c') => {
-                                // Clean exit, then hand off terminal to claude --resume
+                                // Open session in a new terminal tab (claude-stats stays running)
                                 if let Some(s) = app.selected_session() {
                                     let sid = s.id.clone();
-                                    // Resolve cwd: expand ~ back to home dir
                                     let cwd = s.cwd.replace("~", &dirs::home_dir().unwrap_or_default().to_string_lossy());
-                                    // Restore terminal
+                                    match crate::terminal::open_in_new_tab(&sid, &cwd) {
+                                        Ok(()) => {
+                                            app.status_message = Some(("Opened in new tab".into(), std::time::Instant::now()));
+                                        }
+                                        Err(e) => {
+                                            app.status_message = Some((e, std::time::Instant::now()));
+                                        }
+                                    }
+                                }
+                            }
+                            KeyCode::Char('C') => {
+                                // Replace this process with claude --resume (legacy behavior)
+                                if let Some(s) = app.selected_session() {
+                                    let sid = s.id.clone();
+                                    let cwd = s.cwd.replace("~", &dirs::home_dir().unwrap_or_default().to_string_lossy());
                                     disable_raw_mode()?;
                                     execute!(
                                         terminal.backend_mut(),
@@ -193,7 +214,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         LeaveAlternateScreen
                                     )?;
                                     terminal.show_cursor()?;
-                                    // Replace process with claude from the session's directory
+                                    // Unix exec: replaces this process entirely
                                     use std::os::unix::process::CommandExt;
                                     let e = std::process::Command::new("claude")
                                         .arg("--resume")

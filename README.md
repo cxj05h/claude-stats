@@ -28,7 +28,9 @@ Every session shows input, output, cache read, and cache write tokens. The detai
 
 ### Jump into any session with one key
 
-Press `c` in the detail view and claude-stats hands you off directly to `claude --resume` for that session, launched from the correct working directory. No copying session IDs, no navigating to the right folder. One keystroke and you're back in the conversation.
+Press `c` in the detail view and claude-stats opens that session in a **new terminal tab** via `claude --resume`, launched from the correct working directory. claude-stats stays running so you can keep browsing. Auto-detects your terminal (iTerm2, Terminal.app, Warp, tmux, zellij) and uses the right API to create the tab. Press `C` (shift) for the legacy behavior that replaces the current process.
+
+If your terminal isn't auto-detected, run `claude-stats --config-terminal` to set it up manually — including a custom command template for unsupported terminals.
 
 ### Track agent sessions
 
@@ -86,7 +88,7 @@ Press `f` to go fullscreen on the chat. Press `Enter` to expand/collapse all too
 
 ### Quick resume
 
-From the detail view, press `c` to drop out of claude-stats and resume that session in Claude Code. It launches from the session's original working directory.
+From the detail view, press `c` to open that session in a new terminal tab. claude-stats stays running. Press `C` (shift) to replace claude-stats with the session (original behavior). Both launch from the session's original working directory.
 
 ## Keybindings
 
@@ -112,7 +114,8 @@ From the detail view, press `c` to drop out of claude-stats and resume that sess
 | `Left` / `Right` | Previous / next session |
 | `Enter` | Expand/collapse all tool diffs |
 | `f` | Toggle fullscreen chat |
-| `c` | Resume session in Claude Code |
+| `c` | Open session in new terminal tab |
+| `C` | Resume session here (replaces claude-stats) |
 | `/` | Search within chat |
 | `n` / `N` | Next / previous search match |
 | `m` | Toggle mouse capture (for text selection) |
@@ -151,7 +154,7 @@ claude-stats reads directly from Claude Code's local files -- no API calls neede
 
 - `~/.claude/projects/` -- session JSONL files
 - `~/.claude/stats-cache.json` -- weekly token statistics
-- `~/.claude/stats-config.json` -- plan type configuration
+- `~/.claude/stats-config.json` -- plan type and terminal configuration
 - `~/.claude/settings.json` -- effort level
 
 Works with both subscription (Pro/Max) and API key authentication -- any login method that produces local session files.
