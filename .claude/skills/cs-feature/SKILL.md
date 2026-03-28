@@ -7,7 +7,7 @@ description: Manage feature branches and worktrees for claude-stats development.
 
 Manage the feature lifecycle for claude-stats: create isolated workspaces (worktrees or branches), validate work, and merge back to main.
 
-This skill has two modes: **create** (start a new feature) and **merge** (finish and merge back to main).
+This skill has three modes: **create** (start a new feature), **merge** (finish and merge back to main), and **cleanup** (remove stale worktrees/branches).
 
 ---
 
@@ -43,7 +43,13 @@ git branch --show-current
 
 **If already on a feature branch**: Ask the user — finish/merge the current feature first, or start a second parallel feature in a new worktree? Never silently abandon existing work.
 
-**If there are uncommitted changes**: Ask what to do. Options: commit first (use `/ready-ship`), stash, or discard. Never silently stash or discard.
+**If there are uncommitted changes**: Auto-stash them with a descriptive message:
+
+```bash
+git stash push -m "cs-feature: auto-stash before creating worktree"
+```
+
+These will be popped back after the worktree is created. Never ask the user about stashing — it's internal housekeeping.
 
 ### 2. HARD GATE: Ask worktree or feature branch?
 
@@ -66,12 +72,13 @@ Use the `AskUserQuestion` tool with these two options:
 
 ### Path A: Worktree
 
-#### A1. Pull latest main
+#### A1. Pull latest main (handle dirty state)
 
 ```bash
-git checkout main
-git pull origin main
+cd /Users/chrisjones/Documents/Projects/claude-stats && git stash push -m "cs-feature: auto-stash before pull" 2>/dev/null; git checkout main 2>/dev/null; git pull origin main; git stash pop 2>/dev/null
 ```
+
+**Key principle: never let dirty state block a pull.** Auto-stash, pull, pop. If the stash pop conflicts, the stash is preserved — warn the user but continue.
 
 #### A2. Get feature name
 
@@ -146,8 +153,7 @@ Tell the user:
 #### B1. Pull latest main
 
 ```bash
-git checkout main
-git pull origin main
+git stash push -m "cs-feature: auto-stash before pull" 2>/dev/null; git checkout main 2>/dev/null; git pull origin main; git stash pop 2>/dev/null
 ```
 
 #### B2. Create the feature branch
@@ -199,9 +205,9 @@ git branch --show-current
 git worktree list
 ```
 
-Confirm we're on a feature branch (not main). Note the exact worktree path and branch name — you'll need both for cleanup. If already on main with no feature branch, tell the user there's nothing to merge.
+Determine the worktree path and branch name. If already on main with no feature branch, tell the user there's nothing to merge.
 
-### 2. Commit uncommitted work
+### 2. Commit uncommitted work in the worktree
 
 ```bash
 cd /absolute/path/to/worktree && git status
@@ -224,21 +230,29 @@ cd /absolute/path/to/worktree && git diff main..HEAD --stat
 
 Show the user the scope before merging. If the diff is larger than expected, pause and confirm.
 
-### 4. Check if main has diverged
+### 4. Handle dirty main
+
+**Main will often be dirty.** Skill files, README, or other files get modified while working in worktrees. This is normal and must be handled seamlessly.
 
 ```bash
-cd /Users/chrisjones/Documents/Projects/claude-stats && git fetch origin main
-git log HEAD..origin/main --oneline
+cd /Users/chrisjones/Documents/Projects/claude-stats && git status --short
 ```
 
-If main has new commits since the worktree was created:
+**If main has uncommitted changes:**
 
-- **No file overlap with your changes**: Safe to proceed — git will create a merge commit automatically.
-- **Overlapping files**: Warn the user and offer two options:
-  - **Rebase** (cleaner history): `cd /absolute/path/to/worktree && git rebase main` — replays commits on top of latest main. Preferred for small focused features.
-  - **Merge** (safer, preserves history): proceed with merge and resolve conflicts manually.
+```bash
+cd /Users/chrisjones/Documents/Projects/claude-stats && git add -A && git commit -m "chore: commit pending changes on main before merge"
+```
 
-Never auto-pick a strategy — ask the user which they prefer.
+Commit them with a generic message. Do NOT ask the user — these are incidental changes (skill edits, external modifications) that would otherwise block the merge. Always commit, never stash (stashes get lost).
+
+**Then sync main with remote:**
+
+```bash
+cd /Users/chrisjones/Documents/Projects/claude-stats && git pull origin main --no-rebase
+```
+
+If pull fails due to divergence, use `--no-rebase` to create a merge commit rather than risking rebase conflicts.
 
 ### 5. Exit the worktree session (if using EnterWorktree)
 
@@ -256,45 +270,58 @@ If the session was resumed by opening Claude Code inside the worktree directory,
 
 ```bash
 cd /Users/chrisjones/Documents/Projects/claude-stats && git checkout main
-cd /Users/chrisjones/Documents/Projects/claude-stats && git pull origin main
-cd /Users/chrisjones/Documents/Projects/claude-stats && git merge feature-<name> --no-ff -m "Merge worktree-feature-<name>: <brief description>"
+cd /Users/chrisjones/Documents/Projects/claude-stats && git merge worktree-feature-<name> --no-ff -m "Merge worktree-feature-<name>: <brief description>"
 ```
 
 Use `--no-ff` to preserve the branch history as a merge commit.
 
 **If there are merge conflicts**: Show the conflicting files, explain what's conflicting and why, and help resolve. Never use `--force` or `-X theirs/ours` without explicit user approval.
 
-### 7. Clean up
+### 7. Clean up THIS worktree and branch
 
 **Always use `-D` (force delete), not `-d`**, for worktree branches. These branches are never pushed to origin, so git's `-d` always fails with "not fully merged" — even when the commit is safely on local main. `-D` skips the remote tracking check. It's safe because we verified the merge in step 6.
 
 ```bash
-# If created with EnterWorktree:
-git worktree remove .claude/worktrees/feature-<name>
-git branch -D feature-<name>
+# Remove the worktree directory:
+git worktree remove .claude/worktrees/feature-<name> 2>/dev/null
 
-# If using a plain feature branch (Path B):
-git branch -D feature/<name>
+# Delete the branch:
+git branch -D worktree-feature-<name>
 ```
 
-Verify cleanup:
+### 8. Clean up ALL stale worktrees and branches
+
+After the merge, automatically scan for and clean orphaned worktree branches:
 
 ```bash
+# Find branches that start with "worktree-" but have no active worktree
+git branch | grep "worktree-"
 git worktree list
-git branch
 ```
 
-Confirm the worktree/branch is gone and we're on a clean main.
+For each `worktree-*` branch that does NOT have a corresponding active worktree directory:
+- It's an orphan from a previous session that wasn't cleaned up
+- Delete it silently: `git branch -D <branch-name>`
+- No need to ask — these are always local-only branches with no upstream
 
-### 8. Rebuild and install
+Also prune any stale worktree metadata:
+
+```bash
+git worktree prune
+```
+
+Report what was cleaned up (e.g., "Cleaned up 3 stale branches: worktree-fix-search-scroll, worktree-markdown-chat, worktree-feature-session-branch").
+
+### 9. Rebuild and install
 
 The merge may have changed code (conflict resolution, rebase). Always rebuild from main so the installed binary matches what was just merged:
 
 ```bash
-cd /Users/chrisjones/Documents/Projects/claude-stats && source ~/.cargo/env && cargo build --release
+cd /Users/chrisjones/Documents/Projects/claude-stats && source ~/.cargo/env && cargo clippy 2>&1
+cd /Users/chrisjones/Documents/Projects/claude-stats && cargo build --release
 ```
 
-If the build fails, stop and fix — never leave a broken binary installed after a merge.
+If clippy has warnings, fix them. If the build fails, stop and fix — never leave a broken binary installed after a merge.
 
 Then install and codesign (macOS kills unsigned replaced binaries):
 
@@ -305,7 +332,22 @@ ln -sf ~/.local/bin/claude-stats ~/.local/bin/cs
 ls -lh ~/.local/bin/claude-stats
 ```
 
-### 9. Done
+### 10. Final verification
+
+```bash
+git worktree list
+git branch
+git status
+git log --oneline -5
+```
+
+Confirm:
+- Only expected worktrees remain (just main, or main + any actively in-use worktrees)
+- No stale `worktree-*` branches
+- Clean working tree
+- Merge commit is at HEAD
+
+### 11. Done
 
 Tell the user: "Feature merged, rebuilt, and installed. Use `/ready-ship` when you're ready to push to GitHub."
 
@@ -313,13 +355,60 @@ Do NOT push — that's `/ready-ship`'s job.
 
 ---
 
+## Cleanup Mode
+
+Use this when the user asks to clean up worktrees, or when stale branches are detected.
+
+Trigger phrases: "clean up worktrees", "remove stale branches", "git is messy", "what worktrees do I have?"
+
+### 1. Survey the state
+
+```bash
+git worktree list
+git branch
+git stash list
+```
+
+### 2. Identify orphans
+
+Compare the `worktree-*` branches against active worktree directories. Any branch without a matching directory is an orphan.
+
+### 3. Clean up
+
+For each orphan:
+
+```bash
+git worktree prune
+git branch -D <orphan-branch>
+```
+
+For stale stashes (older than 1 week with "cs-feature: auto-stash" prefix):
+
+```bash
+git stash list | grep "cs-feature: auto-stash"
+```
+
+Show them to the user and offer to drop them.
+
+### 4. Report
+
+Show what was cleaned and the final state.
+
+---
+
 ## Edge Cases
+
+**Main is dirty when creating a worktree**: Auto-stash, create worktree, pop stash. The worktree gets a clean copy of main; the stash preserves the user's pending changes on main.
+
+**Main is dirty when merging**: Auto-commit with generic message. These are always incidental changes (skill files, external edits) that would otherwise block the workflow. Never stash during merge — stashes get lost.
+
+**Main has diverged from remote during merge**: Use `git pull --no-rebase` to create a merge commit. Never force-push or reset.
+
+**`git pull` fails with "unstaged changes"**: This is the most common annoyance. Always stash-pull-pop or commit first. The skill handles this automatically so the user never sees it.
 
 **Already on a feature branch when starting a new one**: Ask to finish current feature first or work in parallel (new worktree). Never silently switch branches.
 
 **Worktree or branch name already exists**: Ask to resume, replace (confirm before deleting), or rename. Never silently overwrite.
-
-**Main diverged after branching**: Explain the situation, offer rebase vs merge, let the user choose. Never auto-pick.
 
 **Merge conflicts**: Show conflicting files, explain what's conflicting and why, help resolve. Never use `--force` or `-X` without explicit user approval.
 
@@ -327,11 +416,9 @@ Do NOT push — that's `/ready-ship`'s job.
 
 **User wants to abandon a feature**: Confirm explicitly — this is destructive. Then:
 - Same session: `ExitWorktree(action: "remove")`
-- Different session or plain branch: `git worktree remove .claude/worktrees/feature-<name> && git branch -D feature-<name>`
+- Different session or plain branch: `git worktree remove .claude/worktrees/feature-<name> && git branch -D worktree-feature-<name>`
 
 **`git branch -d` fails with "not fully merged"**: This is expected for worktree branches. Use `git branch -D` — the branch is merged, git just can't verify it against a remote tracking branch that doesn't exist.
-
-**User asks "what worktrees do I have?"**: Run `git worktree list` and show them.
 
 **Resuming a worktree in a new session**: Open Claude Code from inside `.claude/worktrees/feature-<name>/`. The session will scope to that directory automatically.
 
