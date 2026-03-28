@@ -296,6 +296,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn draw_list(f: &mut Frame, app: &mut App) {
     let area = f.area();
+    f.render_widget(Clear, area);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -611,6 +612,7 @@ fn draw_detail(f: &mut Frame, app: &mut App) {
     };
 
     let area = f.area();
+    f.render_widget(Clear, area);
     let current_sid = app.store.current_session_id.as_deref();
     let is_live = current_sid.map(|c| c == session.id).unwrap_or(false);
 
