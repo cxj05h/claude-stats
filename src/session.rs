@@ -307,6 +307,11 @@ pub fn parse_mcp_list_output(output: &str) -> Vec<McpStatus> {
 
         statuses.push(McpStatus { display_name, raw_name: raw_name.to_string(), status });
     }
+    statuses.sort_by_key(|m| match m.status {
+        McpConnectionStatus::Failed => 0,
+        McpConnectionStatus::NeedsAuth => 1,
+        McpConnectionStatus::Connected => 2,
+    });
     statuses
 }
 
