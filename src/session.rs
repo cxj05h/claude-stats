@@ -266,10 +266,6 @@ pub fn parse_mcp_list_output(output: &str) -> Vec<McpStatus> {
         if line.is_empty() || line.starts_with("Checking") {
             continue;
         }
-        // Name is everything before the first ':'
-        let Some(colon_pos) = line.find(':') else { continue };
-        let raw_name = &line[..colon_pos];
-
         // Status is after the last " - "
         let Some(dash_pos) = line.rfind(" - ") else { continue };
         let status_text = &line[dash_pos + 3..];
@@ -282,18 +278,31 @@ pub fn parse_mcp_list_output(output: &str) -> Vec<McpStatus> {
             McpConnectionStatus::Failed
         };
 
-        // Clean up display name: strip "plugin:" prefix, "claude.ai " prefix
-        let display_name = raw_name
-            .strip_prefix("plugin:")
-            .and_then(|rest| rest.split(':').next())
-            .map(|s| {
-                let mut c = s.chars();
-                match c.next() {
-                    Some(f) => f.to_uppercase().to_string() + c.as_str(),
-                    None => s.to_string(),
-                }
-            })
-            .unwrap_or_else(|| raw_name.to_string());
+        // Name: everything before ": <url/command>" — find ": " followed by non-colon
+        // Format examples:
+        //   "claude.ai Linear: https://mcp.linear.app/mcp - ✓ Connected"
+        //   "plugin:github:github: https://api.githubcopilot.com/mcp/ (HTTP) - ✓ Connected"
+        //   "perplexity: npx -y @perplexity-ai/mcp-server - ✓ Connected"
+        let before_status = &line[..dash_pos].trim_end();
+        // Find the last ": " that separates name from URL/command
+        let raw_name = if let Some(sep) = before_status.rfind(": ") {
+            &before_status[..sep]
+        } else {
+            before_status
+        };
+
+        // Clean up display name
+        let display_name = if let Some(rest) = raw_name.strip_prefix("plugin:") {
+            // "plugin:github:github" → take first segment after "plugin:"
+            let name = rest.split(':').next().unwrap_or(rest);
+            let mut c = name.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                None => name.to_string(),
+            }
+        } else {
+            raw_name.to_string()
+        };
 
         statuses.push(McpStatus { display_name, status });
     }
