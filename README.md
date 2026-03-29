@@ -27,6 +27,15 @@ Two indicators show up next to session titles when something is waiting:
 
 Press `X` to clear the indicator on a row, or `C` to clear all at once. Agent sessions never show indicators.
 
+### Monitor MCP connection health
+
+Navigate to the **MCPs** tab (`←`/`→`) to see live status of all your MCP connections:
+
+- `✗` **Needs Auth** (red) — Claude Code wrote a re-auth failure to `~/.claude/mcp-needs-auth-cache.json`. Run `claude mcp login <name>` to fix it.
+- `●` **OK** (green) — no auth failure recorded.
+
+Each row shows the MCP name, status, and when it was last used across any session. The panel refreshes every ~5 seconds, so you'll see auth failures appear in real time as they happen — no more discovering a broken MCP mid-task.
+
 ### Archive sessions you're done with
 
 Navigate to the **Archive** tab (`←`/`→`) and press `A` to hide a session from the main list. Use `Shift+↑`/`↓` to multi-select, then `A` to archive in bulk. Press `V` to view archived sessions, `R` to unarchive. Agent sessions (`⤷`) are automatically archived with their parent. Archive state persists across restarts (`~/.claude/stats-archive.json`).
@@ -86,7 +95,7 @@ Launch `claude-stats` and you'll see your 40 most recent sessions:
 | When | Time since last activity |
 | Duration | Total session time |
 
-The info bar below cycles with `Left`/`Right`: **Branch**, **Path**, **Models**, **Archive**.
+The info bar below cycles with `Left`/`Right`: **Branch**, **Path**, **Models**, **Archive**, **MCPs**.
 
 ### Detail view
 
