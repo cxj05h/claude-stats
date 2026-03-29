@@ -114,6 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             app.fast_refresh();
         }
 
+        ui::poll_mcp_result(&mut app);
         terminal.draw(|f| ui::draw(f, &mut app))?;
 
         // chat_area_top is set inside draw_claude_animation() during draw
@@ -177,9 +178,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             KeyCode::Down => app.move_cursor(1),
                             KeyCode::Left => {
                                 app.list_info_tab = app.list_info_tab.saturating_sub(1);
+                                if app.list_info_tab == 4 && app.mcp_statuses.is_empty() {
+                                    ui::trigger_mcp_check(&mut app);
+                                }
                             }
                             KeyCode::Right => {
                                 app.list_info_tab = (app.list_info_tab + 1).min(4);
+                                if app.list_info_tab == 4 && app.mcp_statuses.is_empty() {
+                                    ui::trigger_mcp_check(&mut app);
+                                }
                             }
                             KeyCode::Enter => {
                                 match app.display_rows.get(app.cursor) {
@@ -216,6 +223,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             KeyCode::Char('K') if app.search_query.is_empty() => {
                                 focus_or_open_session(&mut app);
+                            }
+                            KeyCode::Char('R') if app.list_info_tab == 4 && app.search_query.is_empty() => {
+                                ui::trigger_mcp_check(&mut app);
                             }
                             KeyCode::Char('A') if app.list_info_tab == 3 && !app.viewing_archive => {
                                 let mut to_archive: Vec<String> = Vec::new();

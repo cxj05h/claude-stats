@@ -239,237 +239,67 @@ pub fn fmt_ago(dt: &DateTime<Utc>) -> String {
     }
 }
 
-/// MCP connection status derived from auth cache + session history.
+/// Live MCP connection status from `claude mcp list`.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
+pub enum McpConnectionStatus {
+    Connected,
+    NeedsAuth,
+    Failed,
+}
+
+#[derive(Debug, Clone)]
 pub struct McpStatus {
     pub display_name: String,
-    pub needs_auth: bool,
-    pub auth_failed_at: Option<u64>, // ms epoch
-    pub last_used_at: Option<u64>,   // ms epoch from session end_ts
-    pub total_uses: u32,
+    pub status: McpConnectionStatus,
 }
 
-/// Format a ms-epoch timestamp as a relative time string ("2h ago", "3d ago", "—" if zero).
-pub fn fmt_ago_ms(ms: u64) -> String {
-    let now_ms = Utc::now().timestamp_millis() as u64;
-    if ms == 0 || ms > now_ms {
-        return "—".to_string();
-    }
-    let secs = (now_ms - ms) / 1000;
-    if secs < 60 {
-        format!("{}s ago", secs)
-    } else if secs < 3600 {
-        format!("{}m ago", secs / 60)
-    } else if secs < 86400 {
-        format!("{}h ago", secs / 3600)
-    } else {
-        format!("{}d ago", secs / 86400)
-    }
-}
-
-fn find_auth_failure(display_name: &str, auth_cache: &HashMap<String, u64>) -> Option<u64> {
-    if let Some(&ts) = auth_cache.get(display_name) {
-        return Some(ts);
-    }
-    // Auth cache often has "claude.ai <Name>" format
-    if let Some(&ts) = auth_cache.get(&format!("claude.ai {}", display_name)) {
-        return Some(ts);
-    }
-    None
-}
-
-/// Return the path to the newest .mcp.json under a plugin's version directories.
-fn latest_mcp_json(plugin_dir: &Path) -> Option<PathBuf> {
-    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-    if let Ok(entries) = fs::read_dir(plugin_dir) {
-        for entry in entries.flatten() {
-            let candidate = entry.path().join(".mcp.json");
-            if candidate.exists() {
-                if let Ok(meta) = entry.metadata() {
-                    let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
-                    if best.as_ref().map(|(t, _)| mtime > *t).unwrap_or(true) {
-                        best = Some((mtime, candidate));
-                    }
-                }
-            }
-        }
-    }
-    best.map(|(_, p)| p)
-}
-
-/// Load MCP connection statuses from config files + session history + auth cache.
+/// Parse the output of `claude mcp list` into McpStatus entries.
 ///
-/// Sources (in priority order for the configured MCP list):
-/// 1. `~/.claude.json` mcpServers  — user-level MCPs (e.g. perplexity)
-/// 2. Plugin `.mcp.json` files     — plugin MCPs that actually register MCP servers
-/// 3. Session mcp_tools history    — catches claude.ai integrations (Linear, Notion…)
-/// 4. `mcp-needs-auth-cache.json`  — entries that need auth but may never have been used
-pub fn load_mcp_statuses(sessions: &[Session]) -> Vec<McpStatus> {
-    let home = dirs::home_dir().unwrap_or_default();
+/// Each data line looks like:
+///   `claude.ai Linear: https://mcp.linear.app/mcp - ✓ Connected`
+///   `plugin:github:github: https://... (HTTP) - ! Needs authentication`
+///   `plugin:telegram:telegram: bun run ... - ✗ Failed to connect`
+pub fn parse_mcp_list_output(output: &str) -> Vec<McpStatus> {
+    let mut statuses = Vec::new();
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with("Checking") {
+            continue;
+        }
+        // Name is everything before the first ':'
+        let Some(colon_pos) = line.find(':') else { continue };
+        let raw_name = &line[..colon_pos];
 
-    // Read mcp-needs-auth-cache.json (may not exist)
-    let mut auth_cache: HashMap<String, u64> = HashMap::new();
-    let cache_path = home.join(".claude").join("mcp-needs-auth-cache.json");
-    if let Ok(content) = fs::read_to_string(&cache_path) {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(obj) = json.as_object() {
-                for (name, val) in obj {
-                    if let Some(ts) = val.get("timestamp").and_then(|t| t.as_u64()) {
-                        auth_cache.insert(name.clone(), ts);
-                    }
+        // Status is after the last " - "
+        let Some(dash_pos) = line.rfind(" - ") else { continue };
+        let status_text = &line[dash_pos + 3..];
+
+        let status = if status_text.contains("Connected") {
+            McpConnectionStatus::Connected
+        } else if status_text.contains("Needs authentication") {
+            McpConnectionStatus::NeedsAuth
+        } else {
+            McpConnectionStatus::Failed
+        };
+
+        // Clean up display name: strip "plugin:" prefix, "claude.ai " prefix
+        let display_name = raw_name
+            .strip_prefix("plugin:")
+            .and_then(|rest| rest.split(':').next())
+            .map(|s| {
+                let mut c = s.chars();
+                match c.next() {
+                    Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                    None => s.to_string(),
                 }
-            }
-        }
+            })
+            .unwrap_or_else(|| raw_name.to_string());
+
+        statuses.push(McpStatus { display_name, status });
     }
-
-    // Aggregate MCP usage from sessions: session_key → (total_uses, last_used_ms)
-    let mut server_usage: HashMap<String, (u32, u64)> = HashMap::new();
-    for session in sessions {
-        let session_end_ms = session.end_ts
-            .map(|t| t.timestamp_millis() as u64)
-            .unwrap_or(0);
-        for (server_key, &count) in &session.mcp_tools {
-            let entry = server_usage.entry(server_key.clone()).or_insert((0, 0));
-            entry.0 += count;
-            if session_end_ms > entry.1 {
-                entry.1 = session_end_ms;
-            }
-        }
-    }
-
-    // Build configured MCP list: (session_key, display_name)
-    let mut configured: Vec<(String, String)> = Vec::new();
-
-    // Source 1: user MCPs from ~/.claude.json mcpServers
-    let claude_json = home.join(".claude.json");
-    if let Ok(content) = fs::read_to_string(&claude_json) {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(obj) = json.get("mcpServers").and_then(|v| v.as_object()) {
-                for name in obj.keys() {
-                    let mut chars = name.chars();
-                    let display = match chars.next() {
-                        Some(f) => f.to_uppercase().to_string() + chars.as_str(),
-                        None => continue,
-                    };
-                    configured.push((name.clone(), display));
-                }
-            }
-        }
-    }
-
-    // Source 2: plugin MCPs — only plugins with .mcp.json files register real MCP servers
-    let plugins_cache = home
-        .join(".claude")
-        .join("plugins")
-        .join("cache")
-        .join("claude-plugins-official");
-    let settings_path = home.join(".claude").join("settings.json");
-    if let Ok(content) = fs::read_to_string(&settings_path) {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(plugins) = json.get("enabledPlugins").and_then(|v| v.as_object()) {
-                for (plugin_key, enabled) in plugins {
-                    if !enabled.as_bool().unwrap_or(false) {
-                        continue;
-                    }
-                    let plugin_name = plugin_key.split('@').next().unwrap_or(plugin_key.as_str());
-                    let plugin_dir = plugins_cache.join(plugin_name);
-                    if !plugin_dir.exists() {
-                        continue;
-                    }
-                    let Some(mcp_path) = latest_mcp_json(&plugin_dir) else { continue };
-                    let Ok(mcp_content) = fs::read_to_string(&mcp_path) else { continue };
-                    let Ok(mcp_json) = serde_json::from_str::<serde_json::Value>(&mcp_content) else { continue };
-
-                    // .mcp.json is either {"server": config} or {"mcpServers": {"server": config}}
-                    let servers = mcp_json
-                        .get("mcpServers")
-                        .and_then(|v| v.as_object())
-                        .or_else(|| mcp_json.as_object());
-                    let Some(obj) = servers else { continue };
-
-                    for server_name in obj.keys() {
-                        if server_name == "mcpServers" {
-                            continue; // skip the meta-key in direct-format fallback
-                        }
-                        let session_key = format!("plugin_{}_{}", plugin_name, server_name);
-                        let display = friendly_mcp_name(&session_key);
-                        if !display.is_empty() {
-                            configured.push((session_key, display));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let mut statuses: Vec<McpStatus> = Vec::new();
-    let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    // Add from configured list (authoritative — shows even if never used in sessions)
-    for (session_key, display_name) in &configured {
-        if display_name.is_empty() {
-            continue;
-        }
-        if !seen_names.insert(display_name.to_lowercase()) {
-            continue;
-        }
-        let (total_uses, last_used_ms) = server_usage.get(session_key).copied().unwrap_or((0, 0));
-        let auth_ts = find_auth_failure(display_name, &auth_cache);
-        statuses.push(McpStatus {
-            display_name: display_name.clone(),
-            needs_auth: auth_ts.is_some(),
-            auth_failed_at: auth_ts,
-            last_used_at: if last_used_ms > 0 { Some(last_used_ms) } else { None },
-            total_uses,
-        });
-    }
-
-    // Add session-derived MCPs not covered by config (e.g. claude.ai integrations)
-    for (server_key, (total_uses, last_used_ms)) in &server_usage {
-        let display_name = friendly_mcp_name(server_key);
-        if display_name.is_empty() {
-            continue;
-        }
-        if !seen_names.insert(display_name.to_lowercase()) {
-            continue;
-        }
-        let auth_ts = find_auth_failure(&display_name, &auth_cache);
-        statuses.push(McpStatus {
-            needs_auth: auth_ts.is_some(),
-            auth_failed_at: auth_ts,
-            last_used_at: if *last_used_ms > 0 { Some(*last_used_ms) } else { None },
-            total_uses: *total_uses,
-            display_name,
-        });
-    }
-
-    // Add auth cache entries not yet covered (MCPs that need auth but have no history)
-    for (auth_name, &failed_at) in &auth_cache {
-        let short = auth_name.replace("claude.ai ", "").to_lowercase();
-        if seen_names.contains(&short) || seen_names.contains(&auth_name.to_lowercase()) {
-            continue;
-        }
-        seen_names.insert(auth_name.to_lowercase());
-        statuses.push(McpStatus {
-            display_name: auth_name.clone(),
-            needs_auth: true,
-            auth_failed_at: Some(failed_at),
-            last_used_at: None,
-            total_uses: 0,
-        });
-    }
-
-    // Sort: needs-auth first, then most recently used, then alphabetical
-    statuses.sort_by(|a, b| {
-        b.needs_auth
-            .cmp(&a.needs_auth)
-            .then_with(|| b.last_used_at.cmp(&a.last_used_at))
-            .then_with(|| a.display_name.cmp(&b.display_name))
-    });
-
     statuses
 }
+
 
 /// Extract a human-readable name from a named agent ID.
 /// Named agents have filenames like "agent-<name>-<hex_id>.jsonl".

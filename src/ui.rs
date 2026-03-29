@@ -4,7 +4,8 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, CodeBlockKind};
 use ratatui::{prelude::*, widgets::*};
 use std::time::{Duration, Instant};
 
-use crate::session::{fmt_ago, fmt_ago_ms, fmt_duration, fmt_tokens, friendly_mcp_name, load_mcp_statuses, short_model, McpStatus, Session, SessionStore, WaitingState};
+use crate::session::{fmt_ago, fmt_duration, fmt_tokens, friendly_mcp_name, short_model, McpConnectionStatus, McpStatus, Session, SessionStore, WaitingState};
+use std::sync::{Arc, Mutex};
 
 use crate::session::context_window_for_model;
 use crate::terminal::ProcessInfo;
@@ -232,7 +233,9 @@ pub struct App {
     pub status_message: Option<(String, std::time::Instant)>, // transient footer message
     pub process_map: std::collections::HashMap<String, ProcessInfo>, // session_id → running process info
     pub our_tty: Option<String>, // TTY of this claude-stats process (for self-detection)
-    pub mcp_statuses: Vec<McpStatus>, // live MCP connection statuses
+    pub mcp_statuses: Vec<McpStatus>,                                  // live MCP connection statuses
+    pub mcp_loading: bool,
+    pub mcp_result: Arc<Mutex<Option<Vec<McpStatus>>>>,
 }
 
 impl App {
@@ -248,7 +251,6 @@ impl App {
                 !archived.contains(&s.id) && !parent_archived
             })
             .collect();
-        let mcp_statuses = load_mcp_statuses(&store.sessions);
         App {
             store,
             mode: AppMode::List,
@@ -287,7 +289,9 @@ impl App {
             status_message: None,
             process_map: std::collections::HashMap::new(),
             our_tty: crate::terminal::current_tty(),
-            mcp_statuses,
+            mcp_statuses: Vec::new(),
+            mcp_loading: false,
+            mcp_result: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -480,7 +484,6 @@ impl App {
         let selected_id = self.selected_session().map(|s| s.id.clone());
 
         self.store = SessionStore::load();
-        self.mcp_statuses = load_mcp_statuses(&self.store.sessions);
         self.cleanup_seen_sessions();
 
         self.update_filtered();
@@ -499,11 +502,97 @@ impl App {
     }
 }
 
+/// Trigger a background MCP health check if not already running.
+pub fn trigger_mcp_check(app: &mut App) {
+    if app.mcp_loading { return; }
+    app.mcp_loading = true;
+    app.mcp_statuses.clear();
+    let result = Arc::clone(&app.mcp_result);
+    std::thread::spawn(move || {
+        let output = std::process::Command::new("claude")
+            .args(["mcp", "list"])
+            .output();
+        let statuses = match output {
+            Ok(o) => crate::session::parse_mcp_list_output(
+                &String::from_utf8_lossy(&o.stdout),
+            ),
+            Err(_) => Vec::new(),
+        };
+        *result.lock().unwrap() = Some(statuses);
+    });
+}
+
+/// Poll for MCP check completion (non-blocking).
+pub fn poll_mcp_result(app: &mut App) {
+    if !app.mcp_loading { return; }
+    if let Ok(mut guard) = app.mcp_result.try_lock() {
+        if let Some(statuses) = guard.take() {
+            app.mcp_statuses = statuses;
+            app.mcp_loading = false;
+        }
+    }
+}
+
 pub fn draw(f: &mut Frame, app: &mut App) {
     match app.mode {
         AppMode::List => draw_list(f, app),
         AppMode::Detail => draw_detail(f, app),
     }
+}
+
+/// Render the MCPs panel with live connection statuses.
+fn render_mcp_panel(f: &mut Frame, app: &App, tab_spans: Vec<Span<'_>>, area: Rect) {
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Tab bar line with summary
+    let mut header = tab_spans;
+    if app.mcp_loading {
+        header.push(Span::styled("Checking MCP connections…", Style::default().fg(Color::Yellow)));
+    } else if app.mcp_statuses.is_empty() {
+        header.push(Span::styled("Press R to check", Style::default().fg(DIM)));
+    } else {
+        let connected = app.mcp_statuses.iter()
+            .filter(|m| matches!(m.status, McpConnectionStatus::Connected))
+            .count();
+        let total = app.mcp_statuses.len();
+        let issues = total - connected;
+        let color = if issues > 0 { Color::Yellow } else { Color::Green };
+        header.push(Span::styled(
+            format!("{}/{} connected", connected, total),
+            Style::default().fg(color).bold(),
+        ));
+    }
+    lines.push(Line::from(header));
+
+    if app.mcp_loading {
+        // Pulsing dots based on tick
+        let dots = ".".repeat(((app.tick / 5) % 4) as usize);
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {:<4}", dots), Style::default().fg(Color::Yellow)),
+        ]));
+    } else {
+        for mcp in &app.mcp_statuses {
+            let (icon, icon_color, status_text, status_color) = match &mcp.status {
+                McpConnectionStatus::Connected => ("✓", Color::Green, "Connected", Color::Green),
+                McpConnectionStatus::NeedsAuth => ("!", Color::Yellow, "Needs Auth", Color::Yellow),
+                McpConnectionStatus::Failed => ("✗", Color::Red, "Failed", Color::Red),
+            };
+            let name_trunc = if mcp.display_name.len() > 24 {
+                format!("{}…", &mcp.display_name[..23])
+            } else {
+                mcp.display_name.clone()
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(icon, Style::default().fg(icon_color).bold()),
+                Span::styled(" ", Style::default()),
+                Span::styled(format!("{:<25}", name_trunc), Style::default().fg(Color::White)),
+                Span::styled(status_text, Style::default().fg(status_color)),
+            ]));
+        }
+    }
+
+    f.render_widget(Paragraph::new(lines), area);
 }
 
 fn draw_list(f: &mut Frame, app: &mut App) {
@@ -794,55 +883,8 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             tab_spans.push(Span::styled("  ", Style::default()));
 
             if app.list_info_tab == 4 {
-                // MCPs tab — multi-line panel showing connection status
-                let needs_auth_count = app.mcp_statuses.iter().filter(|m| m.needs_auth).count();
-                let header_color = if needs_auth_count > 0 { Color::Yellow } else { LABEL };
-                let header_text = if app.mcp_statuses.is_empty() {
-                    "No MCPs found".to_string()
-                } else {
-                    format!(
-                        "{} active{}",
-                        app.mcp_statuses.len(),
-                        if needs_auth_count > 0 {
-                            format!(", {} need auth", needs_auth_count)
-                        } else {
-                            String::new()
-                        }
-                    )
-                };
-                tab_spans.push(Span::styled(header_text, Style::default().fg(header_color).bold()));
-
-                let mut lines: Vec<Line> = vec![Line::from(tab_spans)];
-                if app.mcp_statuses.is_empty() {
-                    lines.push(Line::from(vec![
-                        Span::styled("  No MCPs configured", Style::default().fg(DIM)),
-                    ]));
-                } else {
-                    for mcp in &app.mcp_statuses {
-                        let (dot, dot_color, status_text, status_color) = if mcp.needs_auth {
-                            ("✗", Color::Red, "Needs Auth", Color::Red)
-                        } else {
-                            ("●", Color::Green, "OK", Color::Green)
-                        };
-                        let name_trunc = if mcp.display_name.len() > 22 {
-                            format!("{}…", &mcp.display_name[..21])
-                        } else {
-                            mcp.display_name.clone()
-                        };
-                        let last_used = mcp.last_used_at
-                            .map(fmt_ago_ms)
-                            .unwrap_or_else(|| "Never".to_string());
-                        lines.push(Line::from(vec![
-                            Span::styled("  ", Style::default()),
-                            Span::styled(dot, Style::default().fg(dot_color).bold()),
-                            Span::styled(" ", Style::default()),
-                            Span::styled(format!("{:<23}", name_trunc), Style::default().fg(Color::White)),
-                            Span::styled(format!("{:<12}", status_text), Style::default().fg(status_color)),
-                            Span::styled(last_used, Style::default().fg(LABEL)),
-                        ]));
-                    }
-                }
-                f.render_widget(Paragraph::new(lines), chunks[3]);
+                // MCPs tab — live connection status from `claude mcp list`
+                render_mcp_panel(f, app, tab_spans, chunks[3]);
             } else {
                 let detail_text = match app.list_info_tab {
                     0 => {
@@ -911,42 +953,7 @@ fn draw_list(f: &mut Frame, app: &mut App) {
         }
         tab_spans.push(Span::styled("  ", Style::default()));
         if app.list_info_tab == 4 {
-            // MCPs panel — works regardless of session selection
-            let needs_auth_count = app.mcp_statuses.iter().filter(|m| m.needs_auth).count();
-            let header_color = if needs_auth_count > 0 { Color::Yellow } else { LABEL };
-            let header_text = if app.mcp_statuses.is_empty() {
-                "No MCPs found".to_string()
-            } else {
-                format!(
-                    "{} active{}",
-                    app.mcp_statuses.len(),
-                    if needs_auth_count > 0 { format!(", {} need auth", needs_auth_count) } else { String::new() }
-                )
-            };
-            tab_spans.push(Span::styled(header_text, Style::default().fg(header_color).bold()));
-            let mut lines: Vec<Line> = vec![Line::from(tab_spans)];
-            for mcp in &app.mcp_statuses {
-                let (dot, dot_color, status_text, status_color) = if mcp.needs_auth {
-                    ("✗", Color::Red, "Needs Auth", Color::Red)
-                } else {
-                    ("●", Color::Green, "OK", Color::Green)
-                };
-                let name_trunc = if mcp.display_name.len() > 22 {
-                    format!("{}…", &mcp.display_name[..21])
-                } else {
-                    mcp.display_name.clone()
-                };
-                let last_used = mcp.last_used_at.map(fmt_ago_ms).unwrap_or_else(|| "Never".to_string());
-                lines.push(Line::from(vec![
-                    Span::styled("  ", Style::default()),
-                    Span::styled(dot, Style::default().fg(dot_color).bold()),
-                    Span::styled(" ", Style::default()),
-                    Span::styled(format!("{:<23}", name_trunc), Style::default().fg(Color::White)),
-                    Span::styled(format!("{:<12}", status_text), Style::default().fg(status_color)),
-                    Span::styled(last_used, Style::default().fg(LABEL)),
-                ]));
-            }
-            f.render_widget(Paragraph::new(lines), chunks[3]);
+            render_mcp_panel(f, app, tab_spans, chunks[3]);
         } else {
             let detail = if app.archived_ids.is_empty() { "Archive empty".to_string() } else { format!("{} archived", app.archived_ids.len()) };
             tab_spans.push(Span::styled(detail, Style::default().fg(PREVIEW)));
