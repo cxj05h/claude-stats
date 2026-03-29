@@ -300,6 +300,33 @@ impl App {
         }
     }
 
+    /// Move cursor by delta, skipping agent rows (used by detail view Left/Right).
+    pub fn move_cursor_skip_agents(&mut self, delta: i32) {
+        if self.display_rows.is_empty() {
+            return;
+        }
+        let len = self.display_rows.len();
+        let mut pos = self.cursor;
+        loop {
+            if delta < 0 {
+                if pos == 0 { break; }
+                pos -= 1;
+            } else {
+                if pos + 1 >= len { break; }
+                pos += 1;
+            }
+            // Skip agent rows (Session rows whose session has a parent_session_id)
+            let is_agent = match self.display_rows[pos] {
+                DisplayRow::Session(idx) => self.store.sessions[idx].parent_session_id.is_some(),
+                DisplayRow::AgentSummary { .. } => true,
+            };
+            if !is_agent {
+                self.cursor = pos;
+                break;
+            }
+        }
+    }
+
     pub fn scroll_to_search_match(&mut self) {
         if let Some(&line_idx) = self.chat_search_matches.get(self.chat_search_current) {
             let max_scroll = self.chat_total_lines.saturating_sub(self.chat_inner_h);

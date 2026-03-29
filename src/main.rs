@@ -426,7 +426,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Some(s) = app.selected_session() {
                                     app.seen_sessions.insert(s.id.clone(), s.turns);
                                 }
-                                app.move_cursor(-1);
+                                app.move_cursor_skip_agents(-1);
                                 app.detail_scroll = 0;
                             }
                             KeyCode::Right => {
@@ -434,7 +434,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Some(s) = app.selected_session() {
                                     app.seen_sessions.insert(s.id.clone(), s.turns);
                                 }
-                                app.move_cursor(1);
+                                app.move_cursor_skip_agents(1);
                                 app.detail_scroll = 0;
                             }
                             KeyCode::Char('m') => {
