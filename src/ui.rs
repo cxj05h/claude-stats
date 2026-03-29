@@ -682,6 +682,8 @@ fn draw_list(f: &mut Frame, app: &mut App) {
 
             let effort = if !s.effort_changes.is_empty() {
                 s.effort_changes.last().unwrap().1[..3].to_uppercase()
+            } else if is_live {
+                app.store.current_effort[..3].to_uppercase()
             } else {
                 "—".into()
             };
