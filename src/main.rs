@@ -205,13 +205,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             KeyCode::Down => app.move_cursor(1),
                             KeyCode::Left => {
                                 app.list_info_tab = app.list_info_tab.saturating_sub(1);
-                                if app.list_info_tab == 4 && app.mcp_statuses.is_empty() {
+                                if app.list_info_tab == 4 && !app.mcp_loading {
                                     ui::trigger_mcp_check(&mut app);
                                 }
                             }
                             KeyCode::Right => {
                                 app.list_info_tab = (app.list_info_tab + 1).min(4);
-                                if app.list_info_tab == 4 && app.mcp_statuses.is_empty() {
+                                if app.list_info_tab == 4 && !app.mcp_loading {
                                     ui::trigger_mcp_check(&mut app);
                                 }
                             }

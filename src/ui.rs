@@ -1007,20 +1007,31 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             Span::styled("back", Style::default().fg(LABEL)),
             Span::styled(select_hint.clone(), Style::default().fg(Color::Rgb(220, 160, 60)).bold()),
         ]))
-    } else if app.list_info_tab == 3 {
+    } else if app.list_info_tab == 4 {
+        // MCPs tab footer
         Paragraph::new(Line::from(vec![
             Span::styled(" ↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("navigate  ", Style::default().fg(LABEL)),
-            Span::styled("S-↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("select  ", Style::default().fg(LABEL)),
+            Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("re-auth  ", Style::default().fg(LABEL)),
+            Span::styled("R ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("refresh  ", Style::default().fg(LABEL)),
+            Span::styled("←→ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("tab  ", Style::default().fg(LABEL)),
+            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("quit", Style::default().fg(LABEL)),
+        ]))
+    } else if app.list_info_tab == 3 {
+        // Archive tab footer
+        Paragraph::new(Line::from(vec![
+            Span::styled(" S-↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
             Span::styled("select  ", Style::default().fg(LABEL)),
             Span::styled("A ", Style::default().fg(FOOTER_KEY).bold()),
             Span::styled("archive  ", Style::default().fg(LABEL)),
             Span::styled("V ", Style::default().fg(FOOTER_KEY).bold()),
             Span::styled("view archive  ", Style::default().fg(LABEL)),
-            Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("inspect  ", Style::default().fg(LABEL)),
-            Span::styled("type ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("search  ", Style::default().fg(LABEL)),
+            Span::styled("←→ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("tab  ", Style::default().fg(LABEL)),
             Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
             Span::styled("quit", Style::default().fg(LABEL)),
             Span::styled(select_hint, Style::default().fg(Color::Rgb(220, 160, 60)).bold()),
