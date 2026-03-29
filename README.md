@@ -55,7 +55,7 @@ Press `/` in the detail view to search chat messages. Matches highlight in yello
 
 ### Track agent sessions
 
-Subagent sessions are linked to their parent and prefixed with `⤷` in the list. Inspect them the same as any session — full token usage, chat history, context breakdown.
+Agent sessions spawned by Claude Code are grouped under their parent. Parent rows show `▸ N agents` collapsed by default — click the arrow (or press `Enter` on the parent) to expand and see each agent. Double-click any row to inspect it. Agents are always archived with their parent.
 
 ### Monitor context usage
 
