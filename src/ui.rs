@@ -511,7 +511,7 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     f.render_widget(Clear, area);
 
     let info_height: u16 = if app.list_info_tab == 4 {
-        (app.mcp_statuses.len() as u16 + 2).clamp(4, 10)
+        (app.mcp_statuses.len() as u16 + 2).clamp(4, 14)
     } else {
         2
     };
