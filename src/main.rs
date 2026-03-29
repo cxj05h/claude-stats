@@ -155,6 +155,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     break 'main;
                                 }
                             }
+                            // MCPs tab: intercept navigation for MCP cursor
+                            KeyCode::Up if app.list_info_tab == 4 && !app.mcp_statuses.is_empty() => {
+                                app.mcp_cursor = app.mcp_cursor.saturating_sub(1);
+                            }
+                            KeyCode::Down if app.list_info_tab == 4 && !app.mcp_statuses.is_empty() => {
+                                app.mcp_cursor = (app.mcp_cursor + 1).min(app.mcp_statuses.len() - 1);
+                            }
+                            KeyCode::Enter if app.list_info_tab == 4 && !app.mcp_statuses.is_empty() => {
+                                if let Some(mcp) = app.mcp_statuses.get(app.mcp_cursor) {
+                                    if !matches!(mcp.status, crate::session::McpConnectionStatus::Connected) {
+                                        let raw = mcp.raw_name.clone();
+                                        let display = mcp.display_name.clone();
+                                        let cmd = format!("claude mcp login '{}'", raw.replace('\'', "'\\''"));
+                                        match crate::terminal::run_in_new_tab(&cmd) {
+                                            Ok(()) => {
+                                                app.status_message = Some((
+                                                    format!("Authenticating {} — complete auth in new tab, then press R", display),
+                                                    std::time::Instant::now(),
+                                                ));
+                                            }
+                                            Err(e) => {
+                                                app.status_message = Some((e, std::time::Instant::now()));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => {
                                 // Toggle selection on current row, then move up
                                 if let Some(s) = app.selected_session() {

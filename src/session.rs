@@ -250,6 +250,7 @@ pub enum McpConnectionStatus {
 #[derive(Debug, Clone)]
 pub struct McpStatus {
     pub display_name: String,
+    pub raw_name: String, // original name for `claude mcp login <raw_name>`
     pub status: McpConnectionStatus,
 }
 
@@ -304,7 +305,7 @@ pub fn parse_mcp_list_output(output: &str) -> Vec<McpStatus> {
             raw_name.to_string()
         };
 
-        statuses.push(McpStatus { display_name, status });
+        statuses.push(McpStatus { display_name, raw_name: raw_name.to_string(), status });
     }
     statuses
 }

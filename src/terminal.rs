@@ -165,6 +165,76 @@ end tell"#,
     }
 }
 
+/// Open a new terminal tab/window running an arbitrary command string.
+pub fn run_in_new_tab(cmd: &str) -> Result<(), String> {
+    let kind = resolve_terminal();
+    match kind {
+        TerminalKind::ITerm => {
+            let script = format!(
+                r#"tell application "iTerm"
+    if (count of windows) = 0 then
+        create window with default profile
+    else
+        tell current window
+            create tab with default profile
+        end tell
+    end if
+    tell current session of current window
+        write text "{}"
+    end tell
+end tell"#,
+                cmd.replace('"', "\\\"")
+            );
+            run_osascript(&script)
+        }
+        TerminalKind::TerminalApp => {
+            let script = format!(
+                r#"tell application "Terminal"
+    do script "{}"
+    activate
+end tell"#,
+                cmd.replace('"', "\\\"")
+            );
+            run_osascript(&script)
+        }
+        TerminalKind::Warp => {
+            let script = format!(
+                r#"tell application "Warp"
+    do script "{}"
+    activate
+end tell"#,
+                cmd.replace('"', "\\\"")
+            );
+            run_osascript(&script)
+        }
+        TerminalKind::Tmux => {
+            Command::new("tmux")
+                .args(["new-window", cmd])
+                .output()
+                .map_err(|e| format!("tmux: {}", e))
+                .and_then(|o| if o.status.success() { Ok(()) } else { Err(format!("tmux: {}", String::from_utf8_lossy(&o.stderr))) })
+        }
+        TerminalKind::Zellij => {
+            Command::new("zellij")
+                .args(["action", "new-tab", "--", "bash", "-c", cmd])
+                .output()
+                .map_err(|e| format!("zellij: {}", e))
+                .and_then(|o| if o.status.success() { Ok(()) } else { Err(format!("zellij: {}", String::from_utf8_lossy(&o.stderr))) })
+        }
+        TerminalKind::Custom(template) => {
+            let full_cmd = template.replace("{cmd}", cmd);
+            Command::new("sh")
+                .args(["-c", &full_cmd])
+                .output()
+                .map_err(|e| format!("custom: {}", e))
+                .and_then(|o| if o.status.success() { Ok(()) } else { Err(format!("custom: {}", String::from_utf8_lossy(&o.stderr))) })
+        }
+        TerminalKind::Unknown => {
+            Err("Terminal not detected. Run `claude-stats --config-terminal`.".into())
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum MatchConfidence {
     Direct, // --resume arg or task dir open

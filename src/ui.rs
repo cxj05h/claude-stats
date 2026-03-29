@@ -236,6 +236,7 @@ pub struct App {
     pub mcp_statuses: Vec<McpStatus>,                                  // live MCP connection statuses
     pub mcp_loading: bool,
     pub mcp_result: Arc<Mutex<Option<Vec<McpStatus>>>>,
+    pub mcp_cursor: usize,                                              // selected MCP row (when on MCPs tab)
 }
 
 impl App {
@@ -292,6 +293,7 @@ impl App {
             mcp_statuses: Vec::new(),
             mcp_loading: false,
             mcp_result: Arc::new(Mutex::new(None)),
+            mcp_cursor: 0,
         }
     }
 
@@ -482,23 +484,34 @@ impl App {
     pub fn reload_sessions(&mut self) {
         // Remember currently selected session ID to restore position
         let selected_id = self.selected_session().map(|s| s.id.clone());
+        let saved_cursor = self.cursor;
+        let saved_offset = self.list_offset;
 
         self.store = SessionStore::load();
         self.cleanup_seen_sessions();
 
         self.update_filtered();
 
-        // Try to restore cursor to same session
+        // Restore cursor to same session (or same position if session ID not found)
         if let Some(id) = selected_id {
+            let mut found = false;
             for (i, row) in self.display_rows.iter().enumerate() {
                 if let DisplayRow::Session(idx) = row {
                     if self.store.sessions.get(*idx).map(|s| &s.id) == Some(&id) {
                         self.cursor = i;
+                        found = true;
                         break;
                     }
                 }
             }
+            if !found {
+                // Session not in new list — keep cursor at same position, clamped
+                self.cursor = saved_cursor.min(self.display_rows.len().saturating_sub(1));
+            }
+        } else {
+            self.cursor = saved_cursor.min(self.display_rows.len().saturating_sub(1));
         }
+        self.list_offset = saved_offset;
     }
 }
 
@@ -571,7 +584,8 @@ fn render_mcp_panel(f: &mut Frame, app: &App, tab_spans: Vec<Span<'_>>, area: Re
             Span::styled(format!("  {:<4}", dots), Style::default().fg(Color::Yellow)),
         ]));
     } else {
-        for mcp in &app.mcp_statuses {
+        for (i, mcp) in app.mcp_statuses.iter().enumerate() {
+            let selected = i == app.mcp_cursor;
             let (icon, icon_color, status_text, status_color) = match &mcp.status {
                 McpConnectionStatus::Connected => ("✓", Color::Green, "Connected", Color::Green),
                 McpConnectionStatus::NeedsAuth => ("!", Color::Yellow, "Needs Auth", Color::Yellow),
@@ -582,13 +596,25 @@ fn render_mcp_panel(f: &mut Frame, app: &App, tab_spans: Vec<Span<'_>>, area: Re
             } else {
                 mcp.display_name.clone()
             };
-            lines.push(Line::from(vec![
-                Span::styled("  ", Style::default()),
+            let is_actionable = !matches!(mcp.status, McpConnectionStatus::Connected);
+            let cursor_indicator = if selected { "▸" } else { " " };
+            let name_style = if selected {
+                Style::default().fg(Color::White).bold()
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let mut spans = vec![
+                Span::styled(cursor_indicator, Style::default().fg(Color::Cyan).bold()),
+                Span::styled(" ", Style::default()),
                 Span::styled(icon, Style::default().fg(icon_color).bold()),
                 Span::styled(" ", Style::default()),
-                Span::styled(format!("{:<25}", name_trunc), Style::default().fg(Color::White)),
+                Span::styled(format!("{:<25}", name_trunc), name_style),
                 Span::styled(status_text, Style::default().fg(status_color)),
-            ]));
+            ];
+            if selected && is_actionable {
+                spans.push(Span::styled("  Enter to re-auth", Style::default().fg(DIM)));
+            }
+            lines.push(Line::from(spans));
         }
     }
 
