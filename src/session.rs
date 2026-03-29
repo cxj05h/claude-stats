@@ -695,6 +695,9 @@ impl SessionStore {
             }
         }
 
+        // Sort by start time (most recent first) so order is stable
+        sessions.sort_by(|a, b| b.start_ts.cmp(&a.start_ts));
+
         // Live session: most recent end_ts within last 10 minutes
         let current_session_id = Self::find_live_session(&sessions);
 
