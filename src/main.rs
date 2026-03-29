@@ -254,7 +254,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             KeyCode::Char('R') if app.list_info_tab == 4 && app.search_query.is_empty() => {
                                 ui::trigger_mcp_check(&mut app);
                             }
-                            KeyCode::Char('A') if app.list_info_tab == 3 && !app.viewing_archive => {
+                            KeyCode::Char('A') if app.list_info_tab != 4 && !app.viewing_archive => {
                                 let mut to_archive: Vec<String> = Vec::new();
                                 if !app.selected_ids.is_empty() {
                                     to_archive.extend(app.selected_ids.drain());
@@ -273,7 +273,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 ui::save_archive(&app.archived_ids);
                                 app.update_filtered();
                             }
-                            KeyCode::Char('V') if app.list_info_tab == 3 && !app.viewing_archive => {
+                            KeyCode::Char('V') if app.list_info_tab != 4 && !app.viewing_archive => {
                                 cs_log!("archive: entering view ({} archived)", app.archived_ids.len());
                                 app.viewing_archive = true;
                                 app.update_filtered();
