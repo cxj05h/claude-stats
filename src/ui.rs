@@ -225,11 +225,17 @@ pub struct App {
 impl App {
     pub fn new(store: SessionStore) -> Self {
         let archived = load_archive();
-        // Pre-filter: exclude archived sessions from initial view
+        // Pre-filter: exclude archived sessions and agents of archived parents
         let filtered_indices: Vec<usize> = (0..store.sessions.len())
-            .filter(|i| !archived.contains(&store.sessions[*i].id))
+            .filter(|i| {
+                let s = &store.sessions[*i];
+                let parent_archived = s.parent_session_id.as_ref()
+                    .map(|pid| archived.contains(pid))
+                    .unwrap_or(false);
+                !archived.contains(&s.id) && !parent_archived
+            })
             .collect();
-        let app = App {
+        App {
             store,
             mode: AppMode::List,
             cursor: 0,
@@ -262,8 +268,7 @@ impl App {
             status_message: None,
             process_map: std::collections::HashMap::new(),
             our_tty: crate::terminal::current_tty(),
-        };
-        app
+        }
     }
 
     pub fn move_cursor(&mut self, delta: i32) {
@@ -291,11 +296,16 @@ impl App {
 
     pub fn update_filtered(&mut self) {
         let archive_filter = |i: &usize| -> bool {
-            let id = &self.store.sessions[*i].id;
+            let s = &self.store.sessions[*i];
+            let id = &s.id;
+            // Also check if parent is archived — agents follow their parent
+            let parent_archived = s.parent_session_id.as_ref()
+                .map(|pid| self.archived_ids.contains(pid))
+                .unwrap_or(false);
             if self.viewing_archive {
-                self.archived_ids.contains(id)
+                self.archived_ids.contains(id) || parent_archived
             } else {
-                !self.archived_ids.contains(id)
+                !self.archived_ids.contains(id) && !parent_archived
             }
         };
 

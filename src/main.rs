@@ -343,7 +343,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                             }
-                            KeyCode::Char('K') => {
+                            KeyCode::Char('K') | KeyCode::Char('k') => {
                                 focus_or_open_session(&mut app);
                             }
                             KeyCode::Char('C') => {

@@ -321,7 +321,7 @@ pub fn scan_claude_processes(sessions: &[(String, String, i64, String)]) -> Hash
             .join(",");
         let lsof_args = ["-a", "-Fn", "-d", "cwd,10-25", &format!("-p{}", pid_list)];
 
-        if let Ok(output) = Command::new("lsof").args(&lsof_args).output() {
+        if let Ok(output) = Command::new("lsof").args(lsof_args).output() {
             let lsof_out = String::from_utf8_lossy(&output.stdout);
 
             // Parse lsof output into per-PID info

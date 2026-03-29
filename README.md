@@ -29,7 +29,7 @@ Press `X` to clear the indicator on a row, or `C` to clear all at once. Agent se
 
 ### Archive sessions you're done with
 
-Navigate to the **Archive** tab (`←`/`→`) and press `A` to hide a session from the main list. Use `Shift+↑`/`↓` to multi-select, then `A` to archive in bulk. Press `V` to view archived sessions, `R` to unarchive. Archive state persists across restarts (`~/.claude/stats-archive.json`).
+Navigate to the **Archive** tab (`←`/`→`) and press `A` to hide a session from the main list. Use `Shift+↑`/`↓` to multi-select, then `A` to archive in bulk. Press `V` to view archived sessions, `R` to unarchive. Agent sessions (`⤷`) are automatically archived with their parent. Archive state persists across restarts (`~/.claude/stats-archive.json`).
 
 #### Getting back to a waiting session
 
@@ -134,7 +134,7 @@ From the detail view: `c` opens in a new terminal tab (claude-stats stays runnin
 | `←` / `→` | Previous / next session |
 | `Enter` | Expand/collapse tool diffs |
 | `f` | Toggle fullscreen chat |
-| `K` | Focus running tab (or open new) |
+| `k` / `K` | Focus running tab (or open new) |
 | `c` | Open in new terminal tab |
 | `C` | Resume here |
 | `/` | Search chat |
