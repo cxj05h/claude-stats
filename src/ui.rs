@@ -358,36 +358,35 @@ impl App {
         let mut rows: Vec<DisplayRow> = Vec::new();
         self.agent_counts.clear();
 
-        // First pass: count agents per parent
+        // First pass: build agent index per parent
+        let mut agents_by_parent: std::collections::HashMap<String, Vec<usize>> =
+            std::collections::HashMap::new();
         for &idx in &self.filtered_indices {
             let s = &self.store.sessions[idx];
             if let Some(ref pid) = s.parent_session_id {
                 *self.agent_counts.entry(pid.clone()).or_insert(0) += 1;
+                agents_by_parent.entry(pid.clone()).or_default().push(idx);
             }
         }
 
-        // Second pass: build display rows
-        let mut seen_parent_summary: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Second pass: emit parents with their agents immediately after; skip standalone agent rows
         for &idx in &self.filtered_indices {
             let s = &self.store.sessions[idx];
-            if let Some(ref pid) = s.parent_session_id {
-                if self.expanded_parents.contains(pid) {
-                    // Expanded: show individual agent rows
-                    rows.push(DisplayRow::Session(idx));
-                } else {
-                    // Collapsed: show one summary row after the parent
-                    if !seen_parent_summary.contains(pid) {
-                        if let Some(&count) = self.agent_counts.get(pid) {
-                            rows.push(DisplayRow::AgentSummary {
-                                parent_id: pid.clone(),
-                                count,
-                            });
-                            seen_parent_summary.insert(pid.clone());
-                        }
+            if s.parent_session_id.is_some() {
+                continue; // emitted below when parent is encountered
+            }
+            rows.push(DisplayRow::Session(idx));
+            if let Some(agent_idxs) = agents_by_parent.get(&s.id) {
+                if self.expanded_parents.contains(&s.id) {
+                    for &aidx in agent_idxs {
+                        rows.push(DisplayRow::Session(aidx));
                     }
+                } else {
+                    rows.push(DisplayRow::AgentSummary {
+                        parent_id: s.id.clone(),
+                        count: agent_idxs.len(),
+                    });
                 }
-            } else {
-                rows.push(DisplayRow::Session(idx));
             }
         }
 
@@ -655,10 +654,9 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             let model = short_model(&s.model);
 
             let effort = if !s.effort_changes.is_empty() {
-                let e = &s.effort_changes.last().unwrap().1;
-                e[..3].to_uppercase()
+                s.effort_changes.last().unwrap().1[..3].to_uppercase()
             } else {
-                app.store.current_effort[..3].to_uppercase()
+                "—".into()
             };
 
             let dur = match (s.start_ts, s.end_ts) {
