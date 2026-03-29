@@ -185,17 +185,29 @@ pub enum AppMode {
     Detail,
 }
 
+/// A row in the session list — either a real session or an agent summary.
+#[derive(Debug, Clone)]
+pub enum DisplayRow {
+    Session(usize),                          // index into store.sessions
+    AgentSummary { parent_id: String, count: usize }, // collapsed "Agents xN" row
+}
+
 pub struct App {
     pub store: SessionStore,
     pub mode: AppMode,
     pub cursor: usize,
     pub search_query: String,
     pub filtered_indices: Vec<usize>,
+    pub display_rows: Vec<DisplayRow>,       // built from filtered_indices with agent rollup
+    pub expanded_parents: std::collections::HashSet<String>, // parent IDs with agents expanded
+    pub agent_counts: std::collections::HashMap<String, usize>, // parent_id → agent count (rebuilt with display_rows)
     pub list_offset: usize,
     pub tick: u64,
     pub detail_scroll: usize,
     pub chat_fullscreen: bool,
     pub list_info_tab: usize,
+    pub list_table_top: u16,                 // Y position of table for mouse clicks
+    pub last_click: Option<(std::time::Instant, u16, u16)>, // (time, row, col) for double-click detection
     pub mascot: Mascot,
     pub expanded_msgs: std::collections::HashSet<usize>,
     #[allow(dead_code)]
@@ -241,11 +253,16 @@ impl App {
             cursor: 0,
             search_query: String::new(),
             filtered_indices,
+            display_rows: Vec::new(),
+            expanded_parents: std::collections::HashSet::new(),
+            agent_counts: std::collections::HashMap::new(),
             list_offset: 0,
             tick: 0,
             detail_scroll: 0,
             chat_fullscreen: false,
             list_info_tab: 0,
+            list_table_top: 0,
+            last_click: None,
             mascot: Mascot::new(),
             expanded_msgs: std::collections::HashSet::new(),
             tool_summary_indices: Vec::new(),
@@ -272,10 +289,10 @@ impl App {
     }
 
     pub fn move_cursor(&mut self, delta: i32) {
-        if self.filtered_indices.is_empty() {
+        if self.display_rows.is_empty() {
             return;
         }
-        let len = self.filtered_indices.len();
+        let len = self.display_rows.len();
         if delta < 0 {
             self.cursor = self.cursor.saturating_sub((-delta) as usize);
         } else {
@@ -333,12 +350,55 @@ impl App {
         }
         self.cursor = 0;
         self.list_offset = 0;
+        self.rebuild_display_rows();
+    }
+
+    /// Build display_rows from filtered_indices, collapsing agents into summary rows.
+    pub fn rebuild_display_rows(&mut self) {
+        let mut rows: Vec<DisplayRow> = Vec::new();
+        self.agent_counts.clear();
+
+        // First pass: count agents per parent
+        for &idx in &self.filtered_indices {
+            let s = &self.store.sessions[idx];
+            if let Some(ref pid) = s.parent_session_id {
+                *self.agent_counts.entry(pid.clone()).or_insert(0) += 1;
+            }
+        }
+
+        // Second pass: build display rows
+        let mut seen_parent_summary: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for &idx in &self.filtered_indices {
+            let s = &self.store.sessions[idx];
+            if let Some(ref pid) = s.parent_session_id {
+                if self.expanded_parents.contains(pid) {
+                    // Expanded: show individual agent rows
+                    rows.push(DisplayRow::Session(idx));
+                } else {
+                    // Collapsed: show one summary row after the parent
+                    if !seen_parent_summary.contains(pid) {
+                        if let Some(&count) = self.agent_counts.get(pid) {
+                            rows.push(DisplayRow::AgentSummary {
+                                parent_id: pid.clone(),
+                                count,
+                            });
+                            seen_parent_summary.insert(pid.clone());
+                        }
+                    }
+                }
+            } else {
+                rows.push(DisplayRow::Session(idx));
+            }
+        }
+
+        self.display_rows = rows;
     }
 
     pub fn selected_session(&self) -> Option<&Session> {
-        self.filtered_indices
-            .get(self.cursor)
-            .and_then(|&idx| self.store.sessions.get(idx))
+        match self.display_rows.get(self.cursor) {
+            Some(DisplayRow::Session(idx)) => self.store.sessions.get(*idx),
+            _ => None,
+        }
     }
 
     /// Returns the waiting indicator string for a session, or None if dismissed/expired/agent.
@@ -397,10 +457,12 @@ impl App {
 
         // Try to restore cursor to same session
         if let Some(id) = selected_id {
-            for (i, &idx) in self.filtered_indices.iter().enumerate() {
-                if self.store.sessions.get(idx).map(|s| &s.id) == Some(&id) {
-                    self.cursor = i;
-                    break;
+            for (i, row) in self.display_rows.iter().enumerate() {
+                if let DisplayRow::Session(idx) = row {
+                    if self.store.sessions.get(*idx).map(|s| &s.id) == Some(&id) {
+                        self.cursor = i;
+                        break;
+                    }
                 }
             }
         }
@@ -434,7 +496,7 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     let header = Paragraph::new(Line::from(vec![
         Span::styled(header_title, Style::default().bold().fg(Color::White)),
         Span::styled(
-            format!("  {} sessions", app.filtered_indices.len()),
+            format!("  {} sessions", app.display_rows.iter().filter(|r| matches!(r, DisplayRow::Session(_))).count()),
             Style::default().fg(LABEL),
         ),
     ]))
@@ -457,7 +519,12 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     f.render_widget(Paragraph::new(search_text), chunks[1]);
 
     // Session table
+    app.list_table_top = chunks[2].y;
     let visible_height = chunks[2].height.saturating_sub(3) as usize; // header + borders
+    // Clamp cursor to display_rows length
+    if !app.display_rows.is_empty() && app.cursor >= app.display_rows.len() {
+        app.cursor = app.display_rows.len() - 1;
+    }
     if app.cursor >= app.list_offset + visible_height {
         app.list_offset = app.cursor + 1 - visible_height;
     }
@@ -478,12 +545,33 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     let header_row = Row::new(header_cells).height(1);
 
     let rows: Vec<Row> = app
-        .filtered_indices
+        .display_rows
         .iter()
         .enumerate()
         .skip(app.list_offset)
         .take(visible_height)
-        .map(|(i, &idx)| {
+        .map(|(i, row)| {
+            // Handle agent summary rows (collapsed agents)
+            if let DisplayRow::AgentSummary { parent_id: _, count } = row {
+                let is_selected = i == app.cursor;
+                let summary_style = if is_selected {
+                    Style::default().bg(SEL_BG)
+                } else {
+                    Style::default()
+                };
+                let marker = if is_selected { "▶ " } else { "  " };
+                return Row::new(vec![
+                    Cell::from(marker).style(if is_selected { Style::default().fg(FOOTER_KEY).bold() } else { Style::default() }),
+                    Cell::from(format!("    ⤷ {} agents", count)).style(Style::default().fg(DIM)),
+                    Cell::from(""), Cell::from(""), Cell::from(""),
+                    Cell::from(""), Cell::from(""), Cell::from(""), Cell::from(""),
+                ]).style(summary_style);
+            }
+
+            let idx = match row {
+                DisplayRow::Session(idx) => *idx,
+                _ => unreachable!(),
+            };
             let s = &app.store.sessions[idx];
             let is_selected = i == app.cursor;
             let is_live = current_sid.map(|c| c == s.id).unwrap_or(false);
@@ -526,8 +614,13 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 Style::default()
             };
 
+            let has_agents = app.agent_counts.contains_key(&s.id);
+            let agents_expanded = app.expanded_parents.contains(&s.id);
             let raw_title = if is_agent {
-                format!("⤷ {}", s.title)
+                format!("  ⤷ {}", s.title)
+            } else if has_agents {
+                let arrow = if agents_expanded { "▾" } else { "▸" };
+                format!("{} {}", arrow, s.title)
             } else {
                 s.title.clone()
             };
@@ -647,7 +740,11 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     f.render_widget(table, chunks[2]);
 
     // Info bar — shows details for selected session based on tab
-    if let Some(&idx) = app.filtered_indices.get(app.cursor) {
+    let selected_idx = match app.display_rows.get(app.cursor) {
+        Some(DisplayRow::Session(idx)) => Some(*idx),
+        _ => None,
+    };
+    if let Some(idx) = selected_idx {
         if let Some(s) = app.store.sessions.get(idx) {
             let tab_labels = ["Branch", "Path", "Models", "Archive"];
             let mut tab_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];

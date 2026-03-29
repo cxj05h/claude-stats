@@ -92,6 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = SessionStore::load();
     cs_log!("loaded {} sessions", store.sessions.len());
     let mut app = App::new(store);
+    app.rebuild_display_rows();
 
     // Main loop — fast refresh every ~1s, full reload every ~5s
     'main: loop {
@@ -181,10 +182,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.list_info_tab = (app.list_info_tab + 1).min(3);
                             }
                             KeyCode::Enter => {
-                                if !app.filtered_indices.is_empty() {
-                                    let title = app.selected_session().map(|s| s.title.clone()).unwrap_or_default();
-                                    cs_log!("mode: List → Detail ({})", title);
-                                    app.mode = AppMode::Detail;
+                                match app.display_rows.get(app.cursor) {
+                                    Some(ui::DisplayRow::AgentSummary { parent_id, .. }) => {
+                                        let pid = parent_id.clone();
+                                        if !app.expanded_parents.insert(pid.clone()) {
+                                            app.expanded_parents.remove(&pid);
+                                        }
+                                        app.rebuild_display_rows();
+                                    }
+                                    Some(ui::DisplayRow::Session(_)) => {
+                                        let title = app.selected_session().map(|s| s.title.clone()).unwrap_or_default();
+                                        cs_log!("mode: List → Detail ({})", title);
+                                        app.mode = AppMode::Detail;
+                                    }
+                                    None => {}
                                 }
                             }
                             KeyCode::Char('X') => {
@@ -451,6 +462,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             match mouse.kind {
                                 MouseEventKind::ScrollUp => app.move_cursor(-1),
                                 MouseEventKind::ScrollDown => app.move_cursor(1),
+                                MouseEventKind::Down(MouseButton::Left) => {
+                                    // Table content starts 2 rows below table widget top (border + header)
+                                    let table_content_top = app.list_table_top + 2;
+                                    if mouse.row >= table_content_top {
+                                        let clicked_row = app.list_offset + (mouse.row - table_content_top) as usize;
+                                        if clicked_row < app.display_rows.len() {
+                                            // Double-click detection: same row within 400ms
+                                            let is_double = app.last_click
+                                                .map(|(t, r, _)| r == mouse.row && t.elapsed().as_millis() < 400)
+                                                .unwrap_or(false);
+                                            app.last_click = Some((std::time::Instant::now(), mouse.row, mouse.column));
+                                            let row_type = match app.display_rows.get(clicked_row) {
+                                                Some(ui::DisplayRow::Session(idx)) => {
+                                                    let has_agents = app.agent_counts.contains_key(&app.store.sessions[*idx].id);
+                                                    if has_agents { "parent" } else { "session" }
+                                                }
+                                                Some(ui::DisplayRow::AgentSummary { .. }) => "summary",
+                                                None => "none",
+                                            };
+                                            cs_log!("click: col={} row={} type={} dbl={}", mouse.column, clicked_row, row_type, is_double);
+
+                                            app.cursor = clicked_row;
+
+                                            // Left hitbox (cols 0-4, marker/arrow area): toggle agents
+                                            if mouse.column <= 4 {
+                                                match app.display_rows.get(clicked_row) {
+                                                    Some(ui::DisplayRow::AgentSummary { parent_id, .. }) => {
+                                                        let pid = parent_id.clone();
+                                                        if !app.expanded_parents.insert(pid.clone()) {
+                                                            app.expanded_parents.remove(&pid);
+                                                        }
+                                                        app.rebuild_display_rows();
+                                                    }
+                                                    Some(ui::DisplayRow::Session(idx)) => {
+                                                        let sid = app.store.sessions[*idx].id.clone();
+                                                        if app.agent_counts.contains_key(&sid) {
+                                                            if !app.expanded_parents.insert(sid.clone()) {
+                                                                app.expanded_parents.remove(&sid);
+                                                            }
+                                                            app.rebuild_display_rows();
+                                                        }
+                                                    }
+                                                    None => {}
+                                                }
+                                            }
+                                            // Right hitbox (cols 5+): double-click to inspect
+                                            else if is_double {
+                                                if let Some(ui::DisplayRow::Session(_)) = app.display_rows.get(clicked_row) {
+                                                    let title = app.selected_session().map(|s| s.title.clone()).unwrap_or_default();
+                                                    cs_log!("mode: List → Detail (double-click: {})", title);
+                                                    app.mode = AppMode::Detail;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 _ => {}
                             }
                         }
