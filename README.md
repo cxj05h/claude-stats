@@ -29,12 +29,13 @@ Press `X` to clear the indicator on a row, or `C` to clear all at once. Agent se
 
 ### Monitor MCP connection health
 
-Navigate to the **MCPs** tab (`←`/`→`) to see live status of all your MCP connections:
+Navigate to the **MCPs** tab (`←`/`→`) to see live status of all your MCP connections. The tab runs `claude mcp list` to probe each server on arrival (~3 seconds):
 
-- `✗` **Needs Auth** (red) — Claude Code wrote a re-auth failure to `~/.claude/mcp-needs-auth-cache.json`. Run `claude mcp login <name>` to fix it.
-- `●` **OK** (green) — no auth failure recorded.
+- `✓` **Connected** (green) — server is responding normally.
+- `!` **Needs Auth** (yellow) — authentication expired. Press `Enter` to re-auth in a new terminal tab.
+- `✗` **Failed** (red) — server is down or misconfigured. Press `Enter` to attempt re-auth.
 
-Each row shows the MCP name, status, and when it was last used across any session. The panel refreshes every ~5 seconds, so you'll see auth failures appear in real time as they happen — no more discovering a broken MCP mid-task.
+Use `↑`/`↓` to select an MCP, `Enter` to re-authenticate, and `R` to refresh. Status re-checks automatically each time you navigate to the tab. Results are grouped by status: failed first, then needs auth, then connected.
 
 ### Archive sessions you're done with
 
@@ -124,10 +125,10 @@ From the detail view: `c` opens in a new terminal tab (claude-stats stays runnin
 | `K` | Focus running tab (or open new) |
 | `X` | Clear indicator on row |
 | `C` | Clear all indicators |
-| `A` | Archive selected (on Archive tab) |
-| `V` | View archive (on Archive tab) |
-| `R` | Unarchive selected (in archive view) |
-| `Enter` | Open detail view |
+| `A` | Archive selected (Archive tab) |
+| `V` | View archive (Archive tab) |
+| `R` | Unarchive (archive view) / Refresh (MCPs tab) |
+| `Enter` | Open detail view / Re-auth MCP (MCPs tab) |
 | Type | Fuzzy search |
 | `Backspace` | Delete search character |
 | `Esc` | Clear selection / search / quit |
