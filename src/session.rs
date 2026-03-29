@@ -239,6 +239,129 @@ pub fn fmt_ago(dt: &DateTime<Utc>) -> String {
     }
 }
 
+/// MCP connection status derived from auth cache + session history.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct McpStatus {
+    pub display_name: String,
+    pub needs_auth: bool,
+    pub auth_failed_at: Option<u64>, // ms epoch
+    pub last_used_at: Option<u64>,   // ms epoch from session end_ts
+    pub total_uses: u32,
+}
+
+/// Format a ms-epoch timestamp as a relative time string ("2h ago", "3d ago", "—" if zero).
+pub fn fmt_ago_ms(ms: u64) -> String {
+    let now_ms = Utc::now().timestamp_millis() as u64;
+    if ms == 0 || ms > now_ms {
+        return "—".to_string();
+    }
+    let secs = (now_ms - ms) / 1000;
+    if secs < 60 {
+        format!("{}s ago", secs)
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
+    } else {
+        format!("{}d ago", secs / 86400)
+    }
+}
+
+fn find_auth_failure(display_name: &str, auth_cache: &HashMap<String, u64>) -> Option<u64> {
+    if let Some(&ts) = auth_cache.get(display_name) {
+        return Some(ts);
+    }
+    // Auth cache often has "claude.ai <Name>" format
+    if let Some(&ts) = auth_cache.get(&format!("claude.ai {}", display_name)) {
+        return Some(ts);
+    }
+    None
+}
+
+/// Load MCP connection statuses from the auth cache and session history.
+pub fn load_mcp_statuses(sessions: &[Session]) -> Vec<McpStatus> {
+    let home = dirs::home_dir().unwrap_or_default();
+
+    // Read mcp-needs-auth-cache.json
+    let mut auth_cache: HashMap<String, u64> = HashMap::new();
+    let cache_path = home.join(".claude").join("mcp-needs-auth-cache.json");
+    if let Ok(content) = fs::read_to_string(&cache_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(obj) = json.as_object() {
+                for (name, val) in obj {
+                    if let Some(ts) = val.get("timestamp").and_then(|t| t.as_u64()) {
+                        auth_cache.insert(name.clone(), ts);
+                    }
+                }
+            }
+        }
+    }
+
+    // Aggregate MCP usage from sessions: server_key → (total_uses, last_used_ms)
+    let mut server_usage: HashMap<String, (u32, u64)> = HashMap::new();
+    for session in sessions {
+        let session_end_ms = session.end_ts
+            .map(|t| t.timestamp_millis() as u64)
+            .unwrap_or(0);
+        for (server_key, &count) in &session.mcp_tools {
+            let entry = server_usage.entry(server_key.clone()).or_insert((0, 0));
+            entry.0 += count;
+            if session_end_ms > entry.1 {
+                entry.1 = session_end_ms;
+            }
+        }
+    }
+
+    let mut statuses: Vec<McpStatus> = Vec::new();
+    let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Add from session usage data
+    for (server_key, (total_uses, last_used_ms)) in &server_usage {
+        let display_name = friendly_mcp_name(server_key);
+        if display_name.is_empty() {
+            continue;
+        }
+        if !seen_names.insert(display_name.to_lowercase()) {
+            continue;
+        }
+        let auth_ts = find_auth_failure(&display_name, &auth_cache);
+        statuses.push(McpStatus {
+            needs_auth: auth_ts.is_some(),
+            auth_failed_at: auth_ts,
+            last_used_at: if *last_used_ms > 0 { Some(*last_used_ms) } else { None },
+            total_uses: *total_uses,
+            display_name,
+        });
+    }
+
+    // Add auth cache entries not already covered by session data
+    for (auth_name, &failed_at) in &auth_cache {
+        let short = auth_name.replace("claude.ai ", "").to_lowercase();
+        if seen_names.contains(&short) || seen_names.contains(&auth_name.to_lowercase()) {
+            continue;
+        }
+        seen_names.insert(auth_name.to_lowercase());
+        statuses.push(McpStatus {
+            display_name: auth_name.clone(),
+            needs_auth: true,
+            auth_failed_at: Some(failed_at),
+            last_used_at: None,
+            total_uses: 0,
+        });
+    }
+
+    // Sort: needs-auth first, then by most recently used, then alphabetical
+    statuses.sort_by(|a, b| {
+        b.needs_auth
+            .cmp(&a.needs_auth)
+            .then_with(|| b.last_used_at.cmp(&a.last_used_at))
+            .then_with(|| a.display_name.cmp(&b.display_name))
+    });
+
+    statuses
+}
+
 /// Extract a human-readable name from a named agent ID.
 /// Named agents have filenames like "agent-<name>-<hex_id>.jsonl".
 /// Returns None for unnamed agents ("agent-<hex_id>").

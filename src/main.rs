@@ -179,7 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.list_info_tab = app.list_info_tab.saturating_sub(1);
                             }
                             KeyCode::Right => {
-                                app.list_info_tab = (app.list_info_tab + 1).min(3);
+                                app.list_info_tab = (app.list_info_tab + 1).min(4);
                             }
                             KeyCode::Enter => {
                                 match app.display_rows.get(app.cursor) {

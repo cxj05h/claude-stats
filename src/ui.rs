@@ -4,7 +4,7 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, CodeBlockKind};
 use ratatui::{prelude::*, widgets::*};
 use std::time::{Duration, Instant};
 
-use crate::session::{fmt_ago, fmt_duration, fmt_tokens, friendly_mcp_name, short_model, Session, SessionStore, WaitingState};
+use crate::session::{fmt_ago, fmt_ago_ms, fmt_duration, fmt_tokens, friendly_mcp_name, load_mcp_statuses, short_model, McpStatus, Session, SessionStore, WaitingState};
 
 use crate::session::context_window_for_model;
 use crate::terminal::ProcessInfo;
@@ -232,6 +232,7 @@ pub struct App {
     pub status_message: Option<(String, std::time::Instant)>, // transient footer message
     pub process_map: std::collections::HashMap<String, ProcessInfo>, // session_id → running process info
     pub our_tty: Option<String>, // TTY of this claude-stats process (for self-detection)
+    pub mcp_statuses: Vec<McpStatus>, // live MCP connection statuses
 }
 
 impl App {
@@ -247,6 +248,7 @@ impl App {
                 !archived.contains(&s.id) && !parent_archived
             })
             .collect();
+        let mcp_statuses = load_mcp_statuses(&store.sessions);
         App {
             store,
             mode: AppMode::List,
@@ -285,6 +287,7 @@ impl App {
             status_message: None,
             process_map: std::collections::HashMap::new(),
             our_tty: crate::terminal::current_tty(),
+            mcp_statuses,
         }
     }
 
@@ -477,6 +480,7 @@ impl App {
         let selected_id = self.selected_session().map(|s| s.id.clone());
 
         self.store = SessionStore::load();
+        self.mcp_statuses = load_mcp_statuses(&self.store.sessions);
         self.cleanup_seen_sessions();
 
         self.update_filtered();
@@ -506,14 +510,19 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     let area = f.area();
     f.render_widget(Clear, area);
 
+    let info_height: u16 = if app.list_info_tab == 4 {
+        (app.mcp_statuses.len() as u16 + 2).clamp(4, 10)
+    } else {
+        2
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // header
-            Constraint::Length(2), // search
-            Constraint::Min(10),  // table
-            Constraint::Length(2), // info bar
-            Constraint::Length(1), // footer
+            Constraint::Length(3),            // header
+            Constraint::Length(2),            // search
+            Constraint::Min(10),              // table
+            Constraint::Length(info_height),  // info bar
+            Constraint::Length(1),            // footer
         ])
         .split(area);
 
@@ -773,7 +782,7 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     };
     if let Some(idx) = selected_idx {
         if let Some(s) = app.store.sessions.get(idx) {
-            let tab_labels = ["Branch", "Path", "Models", "Archive"];
+            let tab_labels = ["Branch", "Path", "Models", "Archive", "MCPs"];
             let mut tab_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];
             for (i, label) in tab_labels.iter().enumerate() {
                 if i == app.list_info_tab {
@@ -784,62 +793,114 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             }
             tab_spans.push(Span::styled("  ", Style::default()));
 
-            let detail_text = match app.list_info_tab {
-                0 => {
-                    if s.git_branch.is_empty() {
-                        "No branch info".to_string()
-                    } else if let Some(name) = s.git_branch.strip_prefix("worktree-") {
-                        format!("\u{2387} \u{2294} {}", name)
-                    } else {
-                        format!("\u{2387} {}", s.git_branch)
-                    }
-                }
-                1 => s.cwd.clone(),
-                2 => {
-                    if s.models_timeline.is_empty() {
-                        short_model(&s.model)
-                    } else {
-                        s.models_timeline.iter()
-                            .map(|(_, m)| short_model(m))
-                            .collect::<Vec<_>>()
-                            .join(" → ")
-                    }
-                }
-                3 => {
-                    let count = app.archived_ids.len();
-                    if count == 0 {
-                        "Archive empty".to_string()
-                    } else {
-                        format!("{} archived", count)
-                    }
-                }
-                _ => String::new(),
-            };
+            if app.list_info_tab == 4 {
+                // MCPs tab — multi-line panel showing connection status
+                let needs_auth_count = app.mcp_statuses.iter().filter(|m| m.needs_auth).count();
+                let header_color = if needs_auth_count > 0 { Color::Yellow } else { LABEL };
+                let header_text = if app.mcp_statuses.is_empty() {
+                    "No MCPs found".to_string()
+                } else {
+                    format!(
+                        "{} active{}",
+                        app.mcp_statuses.len(),
+                        if needs_auth_count > 0 {
+                            format!(", {} need auth", needs_auth_count)
+                        } else {
+                            String::new()
+                        }
+                    )
+                };
+                tab_spans.push(Span::styled(header_text, Style::default().fg(header_color).bold()));
 
-            // If it's an agent, show parent info
-            let parent_info = if let Some(pid) = &s.parent_session_id {
-                let parent_title = app.store.sessions.iter()
-                    .find(|ps| ps.id == *pid)
-                    .map(|ps| ps.title.clone())
-                    .unwrap_or_else(|| pid[..pid.len().min(12)].to_string());
-                format!("  ⤷ from: {}", parent_title)
+                let mut lines: Vec<Line> = vec![Line::from(tab_spans)];
+                if app.mcp_statuses.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::styled("  No MCPs configured", Style::default().fg(DIM)),
+                    ]));
+                } else {
+                    for mcp in &app.mcp_statuses {
+                        let (dot, dot_color, status_text, status_color) = if mcp.needs_auth {
+                            ("✗", Color::Red, "Needs Auth", Color::Red)
+                        } else {
+                            ("●", Color::Green, "OK", Color::Green)
+                        };
+                        let name_trunc = if mcp.display_name.len() > 22 {
+                            format!("{}…", &mcp.display_name[..21])
+                        } else {
+                            mcp.display_name.clone()
+                        };
+                        let last_used = mcp.last_used_at
+                            .map(fmt_ago_ms)
+                            .unwrap_or_else(|| "Never".to_string());
+                        lines.push(Line::from(vec![
+                            Span::styled("  ", Style::default()),
+                            Span::styled(dot, Style::default().fg(dot_color).bold()),
+                            Span::styled(" ", Style::default()),
+                            Span::styled(format!("{:<23}", name_trunc), Style::default().fg(Color::White)),
+                            Span::styled(format!("{:<12}", status_text), Style::default().fg(status_color)),
+                            Span::styled(last_used, Style::default().fg(LABEL)),
+                        ]));
+                    }
+                }
+                f.render_widget(Paragraph::new(lines), chunks[3]);
             } else {
-                String::new()
-            };
+                let detail_text = match app.list_info_tab {
+                    0 => {
+                        if s.git_branch.is_empty() {
+                            "No branch info".to_string()
+                        } else if let Some(name) = s.git_branch.strip_prefix("worktree-") {
+                            format!("\u{2387} \u{2294} {}", name)
+                        } else {
+                            format!("\u{2387} {}", s.git_branch)
+                        }
+                    }
+                    1 => s.cwd.clone(),
+                    2 => {
+                        if s.models_timeline.is_empty() {
+                            short_model(&s.model)
+                        } else {
+                            s.models_timeline.iter()
+                                .map(|(_, m)| short_model(m))
+                                .collect::<Vec<_>>()
+                                .join(" → ")
+                        }
+                    }
+                    3 => {
+                        let count = app.archived_ids.len();
+                        if count == 0 {
+                            "Archive empty".to_string()
+                        } else {
+                            format!("{} archived", count)
+                        }
+                    }
+                    _ => String::new(),
+                };
 
-            let detail_color = if app.list_info_tab == 0 { Color::Cyan } else { PREVIEW };
-            tab_spans.push(Span::styled(detail_text, Style::default().fg(detail_color)));
-            if !parent_info.is_empty() {
-                tab_spans.push(Span::styled(parent_info, Style::default().fg(Color::Rgb(140, 120, 180))));
+                // If it's an agent, show parent info
+                let parent_info = if let Some(pid) = &s.parent_session_id {
+                    let parent_title = app.store.sessions.iter()
+                        .find(|ps| ps.id == *pid)
+                        .map(|ps| ps.title.clone())
+                        .unwrap_or_else(|| pid[..pid.len().min(12)].to_string());
+                    format!("  ⤷ from: {}", parent_title)
+                } else {
+                    String::new()
+                };
+
+                let detail_color = if app.list_info_tab == 0 { Color::Cyan } else { PREVIEW };
+                tab_spans.push(Span::styled(detail_text, Style::default().fg(detail_color)));
+                if !parent_info.is_empty() {
+                    tab_spans.push(Span::styled(parent_info, Style::default().fg(Color::Rgb(140, 120, 180))));
+                }
+
+                f.render_widget(Paragraph::new(vec![
+                    Line::from(tab_spans),
+                ]), chunks[3]);
             }
-
-            f.render_widget(Paragraph::new(vec![
-                Line::from(tab_spans),
-            ]), chunks[3]);
         }
-    } else if app.list_info_tab == 3 {
-        // Empty list but Archive tab selected — still show tab bar with archive count
-        let tab_labels = ["Branch", "Path", "Models", "Archive"];
+    } else if app.list_info_tab == 3 || app.list_info_tab == 4 {
+        // Empty session list but Archive or MCPs tab selected — still show tab bar
+        let tab_labels = ["Branch", "Path", "Models", "Archive", "MCPs"];
         let mut tab_spans: Vec<Span> = vec![Span::styled("  ", Style::default())];
         for (i, label) in tab_labels.iter().enumerate() {
             if i == app.list_info_tab {
@@ -849,9 +910,48 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             }
         }
         tab_spans.push(Span::styled("  ", Style::default()));
-        let detail = if app.archived_ids.is_empty() { "Archive empty".to_string() } else { format!("{} archived", app.archived_ids.len()) };
-        tab_spans.push(Span::styled(detail, Style::default().fg(PREVIEW)));
-        f.render_widget(Paragraph::new(vec![Line::from(tab_spans)]), chunks[3]);
+        if app.list_info_tab == 4 {
+            // MCPs panel — works regardless of session selection
+            let needs_auth_count = app.mcp_statuses.iter().filter(|m| m.needs_auth).count();
+            let header_color = if needs_auth_count > 0 { Color::Yellow } else { LABEL };
+            let header_text = if app.mcp_statuses.is_empty() {
+                "No MCPs found".to_string()
+            } else {
+                format!(
+                    "{} active{}",
+                    app.mcp_statuses.len(),
+                    if needs_auth_count > 0 { format!(", {} need auth", needs_auth_count) } else { String::new() }
+                )
+            };
+            tab_spans.push(Span::styled(header_text, Style::default().fg(header_color).bold()));
+            let mut lines: Vec<Line> = vec![Line::from(tab_spans)];
+            for mcp in &app.mcp_statuses {
+                let (dot, dot_color, status_text, status_color) = if mcp.needs_auth {
+                    ("✗", Color::Red, "Needs Auth", Color::Red)
+                } else {
+                    ("●", Color::Green, "OK", Color::Green)
+                };
+                let name_trunc = if mcp.display_name.len() > 22 {
+                    format!("{}…", &mcp.display_name[..21])
+                } else {
+                    mcp.display_name.clone()
+                };
+                let last_used = mcp.last_used_at.map(fmt_ago_ms).unwrap_or_else(|| "Never".to_string());
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(dot, Style::default().fg(dot_color).bold()),
+                    Span::styled(" ", Style::default()),
+                    Span::styled(format!("{:<23}", name_trunc), Style::default().fg(Color::White)),
+                    Span::styled(format!("{:<12}", status_text), Style::default().fg(status_color)),
+                    Span::styled(last_used, Style::default().fg(LABEL)),
+                ]));
+            }
+            f.render_widget(Paragraph::new(lines), chunks[3]);
+        } else {
+            let detail = if app.archived_ids.is_empty() { "Archive empty".to_string() } else { format!("{} archived", app.archived_ids.len()) };
+            tab_spans.push(Span::styled(detail, Style::default().fg(PREVIEW)));
+            f.render_widget(Paragraph::new(vec![Line::from(tab_spans)]), chunks[3]);
+        }
     }
 
     // Footer — context-sensitive based on archive state
