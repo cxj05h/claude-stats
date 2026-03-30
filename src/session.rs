@@ -655,11 +655,44 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
 }
 
 impl SessionStore {
+    /// Read archived session IDs from ~/.claude/stats-archive.json.
+    fn read_archived_ids(home: &std::path::Path) -> std::collections::HashSet<String> {
+        let path = home.join(".claude").join("stats-archive.json");
+        let content = match fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(_) => return std::collections::HashSet::new(),
+        };
+        serde_json::from_str::<Vec<String>>(&content)
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
+    }
+
+    /// Scan a JSONL file for a custom-title entry and return it if found.
+    fn extract_custom_title(path: &Path) -> Option<String> {
+        let content = fs::read_to_string(path).ok()?;
+        for line in content.lines() {
+            if let Ok(entry) = serde_json::from_str::<Value>(line) {
+                if entry.get("type").and_then(|v| v.as_str()) == Some("custom-title") {
+                    if let Some(t) = entry.get("customTitle").and_then(|v| v.as_str()) {
+                        return Some(t.to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn load() -> Self {
         let home = dirs::home_dir().unwrap_or_default();
         let projects_dir = home.join(".claude").join("projects");
         let mut sessions: Vec<Session> = Vec::new();
         let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // Load archived IDs so we can keep recent archived sessions beyond the 40-cap
+        let archived_ids = Self::read_archived_ids(&home);
+        let seven_days = std::time::Duration::from_secs(7 * 24 * 3600);
+        let now = std::time::SystemTime::now();
 
         // Collect all JSONL files with modification times
         let mut files: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
@@ -670,18 +703,40 @@ impl SessionStore {
         // Sort by modification time, most recent first
         files.sort_by(|a, b| b.1.cmp(&a.1));
 
-        // Load max 40 most recent sessions
-        for (path, _) in files {
-            if sessions.len() >= 40 {
-                break;
-            }
+        // Load sessions: up to 40 active, plus archived sessions within 7 days
+        for (path, mtime) in &files {
             let id = match path.file_stem().and_then(|s| s.to_str()) {
                 Some(s) => s.to_string(),
                 None => continue,
             };
+
+            let is_archived = archived_ids.contains(&id);
+            let within_7_days = now.duration_since(*mtime).unwrap_or(seven_days + std::time::Duration::from_secs(1)) <= seven_days;
+
             if seen_ids.contains(&id) {
+                // Fix: if the winning copy has a UUID fallback title, check if this
+                // duplicate has a custom-title we should inherit (e.g. rename written
+                // to a worktree copy while most session data lives in the main copy).
+                if let Some(sess) = sessions.iter_mut().find(|s| s.id == id) {
+                    let uuid_prefix: String = sess.id.chars().take(14).collect();
+                    if sess.title == uuid_prefix {
+                        if let Some(t) = Self::extract_custom_title(path) {
+                            sess.title = t;
+                        }
+                    }
+                }
                 continue;
             }
+
+            // Skip active sessions once we've hit the 40-session cap;
+            // still pick up recent archived sessions beyond the cap.
+            if !is_archived && sessions.len() >= 40 {
+                continue;
+            }
+            if is_archived && !within_7_days {
+                continue;
+            }
+
             seen_ids.insert(id.clone());
 
             // Detect parent session for agents: .../parent-id/subagents/agent-*.jsonl
@@ -695,7 +750,7 @@ impl SessionStore {
                 None
             };
 
-            if let Some(session) = load_session_from_file(&path, parent_id) {
+            if let Some(session) = load_session_from_file(path, parent_id) {
                 sessions.push(session);
             }
         }

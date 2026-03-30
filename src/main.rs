@@ -167,16 +167,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     if !matches!(mcp.status, crate::session::McpConnectionStatus::Connected) {
                                         let raw = mcp.raw_name.clone();
                                         let display = mcp.display_name.clone();
-                                        let cmd = format!("claude mcp login '{}'", raw.replace('\'', "'\\''"));
-                                        match crate::terminal::run_in_new_tab(&cmd) {
-                                            Ok(()) => {
-                                                app.status_message = Some((
-                                                    format!("Authenticating {} — complete auth in new tab, then press R", display),
-                                                    std::time::Instant::now(),
-                                                ));
-                                            }
-                                            Err(e) => {
-                                                app.status_message = Some((e, std::time::Instant::now()));
+                                        if raw.starts_with("claude.ai ") {
+                                            // claude.ai-managed servers: open connectors page in browser
+                                            let _ = std::process::Command::new("open")
+                                                .arg("https://claude.ai/settings/connectors")
+                                                .spawn();
+                                            app.status_message = Some((
+                                                format!("Opened claude.ai connectors — re-auth {} there, then press R", display),
+                                                std::time::Instant::now(),
+                                            ));
+                                        } else {
+                                            // Local OAuth servers: run mcp-reauth in a new tab
+                                            let cmd = format!("mcp-reauth '{}'", raw.replace('\'', "'\\''"));
+                                            match crate::terminal::run_in_new_tab(&cmd) {
+                                                Ok(()) => {
+                                                    app.status_message = Some((
+                                                        format!("Authenticating {} — complete auth in new tab, then press R", display),
+                                                        std::time::Instant::now(),
+                                                    ));
+                                                }
+                                                Err(e) => {
+                                                    app.status_message = Some((e, std::time::Instant::now()));
+                                                }
                                             }
                                         }
                                     }

@@ -363,7 +363,14 @@ impl App {
         };
 
         if self.search_query.is_empty() {
-            self.filtered_indices = (0..self.store.sessions.len().min(40))
+            // Archive view shows all loaded sessions (no 40-cap — archived sessions beyond
+            // the active window are loaded separately and sorted to the end of the vec).
+            let max = if self.viewing_archive {
+                self.store.sessions.len()
+            } else {
+                self.store.sessions.len().min(40)
+            };
+            self.filtered_indices = (0..max)
                 .filter(archive_filter)
                 .collect();
         } else {
