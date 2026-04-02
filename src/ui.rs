@@ -176,6 +176,11 @@ impl Mascot {
             lines.push(Line::from(spans));
         }
 
+        // Bottom padding to fill entire area (prevents ghost artifacts from diff rendering)
+        while lines.len() < char_area.height as usize {
+            lines.push(Line::from(""));
+        }
+
         f.render_widget(Paragraph::new(lines), char_area);
     }
 }
