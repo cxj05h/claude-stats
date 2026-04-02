@@ -59,6 +59,10 @@ The active session gets a green `●` and a highlighted row. Indicators update e
 
 Start typing to fuzzy-search across session titles, project paths, and model names. Filters in real time.
 
+### Search across all sessions
+
+Press `/` from the session list to search chat content across every session at once. Results filter the list by match count, show hit counts per session, and display a rich context panel with up to 10 snippets — each tagged with the speaker role and highlighted matches. Press `Enter` to open a result; the detail view pre-populates the search so matches are highlighted immediately.
+
 ### Search inside conversations
 
 Press `/` in the detail view to search chat messages. Matches highlight in yellow, current match in orange. `n`/`N` jumps between results, viewport scrolls to center each one.
@@ -129,6 +133,7 @@ From the detail view: `c` opens in a new terminal tab (claude-stats stays runnin
 | `V` | View archive (Archive tab) |
 | `R` | Unarchive (archive view) / Refresh (MCPs tab) |
 | `Enter` | Open detail view / Re-auth MCP (MCPs tab) |
+| `/` | Search chat content across all sessions |
 | Type | Fuzzy search |
 | `Backspace` | Delete search character |
 | `Esc` | Clear selection / search / quit |

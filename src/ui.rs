@@ -470,9 +470,9 @@ impl App {
                             let start_byte = chars[start_char].0;
                             let end_byte = if end_char < chars.len() { chars[end_char].0 } else { text.len() };
                             let mut snippet = String::new();
-                            if start_char > 0 { snippet.push_str("…"); }
+                            if start_char > 0 { snippet.push('…'); }
                             snippet.push_str(&text[start_byte..end_byte]);
-                            if end_char < chars.len() { snippet.push_str("…"); }
+                            if end_char < chars.len() { snippet.push('…'); }
                             let snippet = snippet.split_whitespace().collect::<Vec<_>>().join(" ");
                             snippets.push(GlobalSearchMatch {
                                 role: msg.role.clone(),
