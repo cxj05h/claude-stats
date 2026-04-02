@@ -193,6 +193,16 @@ pub enum DisplayRow {
     AgentSummary { parent_id: String, count: usize }, // collapsed "Agents xN" row
 }
 
+pub struct GlobalSearchMatch {
+    pub role: String,       // "user" or "assistant"
+    pub snippet: String,    // ~80 chars of context around match
+}
+
+pub struct GlobalSearchResult {
+    pub match_count: usize,
+    pub matches: Vec<GlobalSearchMatch>, // up to ~10 snippets with role context
+}
+
 pub struct App {
     pub store: SessionStore,
     pub mode: AppMode,
@@ -217,6 +227,10 @@ pub struct App {
     pub chat_scroll_y: std::cell::Cell<u16>,
     pub clickable_lines: std::cell::RefCell<Vec<(usize, usize)>>, // (line_index, msg_index) for ToolUse
     matcher: SkimMatcherV2,
+    // Global chat search state (searches across all sessions from list view)
+    pub global_search_active: bool,
+    pub global_search_query: String,
+    pub global_search_results: std::collections::HashMap<usize, GlobalSearchResult>,
     // In-chat search state
     pub chat_search_active: bool,
     pub chat_search_query: String,
@@ -275,6 +289,9 @@ impl App {
             chat_scroll_y: std::cell::Cell::new(0),
             clickable_lines: std::cell::RefCell::new(Vec::new()),
             matcher: SkimMatcherV2::default(),
+            global_search_active: false,
+            global_search_query: String::new(),
+            global_search_results: std::collections::HashMap::new(),
             mouse_captured: true,
             chat_search_active: false,
             chat_search_query: String::new(),
@@ -396,6 +413,92 @@ impl App {
         self.rebuild_display_rows();
     }
 
+    /// Search all sessions' chat content for a query string, updating filtered_indices
+    /// to only show matching sessions sorted by match count.
+    pub fn run_global_search(&mut self) {
+        self.global_search_results.clear();
+
+        if self.global_search_query.is_empty() {
+            self.update_filtered();
+            return;
+        }
+
+        let query_lower = self.global_search_query.to_lowercase();
+
+        // Archive filter (same logic as update_filtered)
+        let archive_filter = |s: &crate::session::Session| -> bool {
+            let parent_archived = s.parent_session_id.as_ref()
+                .map(|pid| self.archived_ids.contains(pid))
+                .unwrap_or(false);
+            if self.viewing_archive {
+                self.archived_ids.contains(&s.id) || parent_archived
+            } else {
+                !self.archived_ids.contains(&s.id) && !parent_archived
+            }
+        };
+
+        for (idx, session) in self.store.sessions.iter().enumerate() {
+            if !archive_filter(session) {
+                continue;
+            }
+            let mut count = 0usize;
+            let mut snippets: Vec<GlobalSearchMatch> = Vec::new();
+
+            for msg in &session.messages {
+                let text = match &msg.block {
+                    crate::session::ContentBlock::Text(t) => t.as_str(),
+                    crate::session::ContentBlock::ToolResult(t) => t.as_str(),
+                    crate::session::ContentBlock::ToolUse { summary, .. } => summary.as_str(),
+                    crate::session::ContentBlock::Thinking => continue,
+                };
+
+                let text_lower = text.to_lowercase();
+                let matches_in_block = text_lower.matches(&query_lower).count();
+                if matches_in_block > 0 {
+                    // Collect up to 10 distinct snippets per session
+                    if snippets.len() < 10 {
+                        if let Some(byte_pos) = text_lower.find(&query_lower) {
+                            let chars: Vec<(usize, char)> = text.char_indices().collect();
+                            let char_idx = chars.iter().position(|(b, _)| *b >= byte_pos).unwrap_or(0);
+                            let start_char = char_idx.saturating_sub(40);
+                            let end_char = (char_idx + query_lower.chars().count() + 40).min(chars.len());
+                            let start_byte = chars[start_char].0;
+                            let end_byte = if end_char < chars.len() { chars[end_char].0 } else { text.len() };
+                            let mut snippet = String::new();
+                            if start_char > 0 { snippet.push_str("…"); }
+                            snippet.push_str(&text[start_byte..end_byte]);
+                            if end_char < chars.len() { snippet.push_str("…"); }
+                            let snippet = snippet.split_whitespace().collect::<Vec<_>>().join(" ");
+                            snippets.push(GlobalSearchMatch {
+                                role: msg.role.clone(),
+                                snippet,
+                            });
+                        }
+                    }
+                    count += matches_in_block;
+                }
+            }
+
+            if count > 0 {
+                self.global_search_results.insert(idx, GlobalSearchResult {
+                    match_count: count,
+                    matches: snippets,
+                });
+            }
+        }
+
+        // Build filtered_indices from matching sessions, sorted by match count desc
+        let mut matched: Vec<(usize, usize)> = self.global_search_results.iter()
+            .map(|(&idx, r)| (idx, r.match_count))
+            .collect();
+        matched.sort_by(|a, b| b.1.cmp(&a.1));
+        self.filtered_indices = matched.into_iter().map(|(idx, _)| idx).collect();
+
+        self.cursor = 0;
+        self.list_offset = 0;
+        self.rebuild_display_rows();
+    }
+
     /// Build display_rows from filtered_indices, collapsing agents into summary rows.
     pub fn rebuild_display_rows(&mut self) {
         let mut rows: Vec<DisplayRow> = Vec::new();
@@ -497,7 +600,12 @@ impl App {
         self.store = SessionStore::load();
         self.cleanup_seen_sessions();
 
-        self.update_filtered();
+        // Re-apply the active filter (global search or normal)
+        if !self.global_search_query.is_empty() {
+            self.run_global_search();
+        } else {
+            self.update_filtered();
+        }
 
         // Restore cursor to same session (or same position if session ID not found)
         if let Some(id) = selected_id {
@@ -632,7 +740,18 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     let area = f.area();
     f.render_widget(Clear, area);
 
-    let info_height: u16 = if app.list_info_tab == 4 {
+    let info_height: u16 = if !app.global_search_query.is_empty() {
+        // Global search: show rich context panel (up to 10 snippet lines + 1 header)
+        let selected_idx = match app.display_rows.get(app.cursor) {
+            Some(DisplayRow::Session(idx)) => Some(*idx),
+            _ => None,
+        };
+        let snippet_count = selected_idx
+            .and_then(|idx| app.global_search_results.get(&idx))
+            .map(|r| r.matches.len())
+            .unwrap_or(0);
+        (snippet_count as u16 + 1).clamp(3, 12)
+    } else if app.list_info_tab == 4 {
         (app.mcp_statuses.len() as u16 + 2).clamp(4, 14)
     } else {
         2
@@ -661,7 +780,27 @@ fn draw_list(f: &mut Frame, app: &mut App) {
     f.render_widget(header, chunks[0]);
 
     // Search bar
-    let search_text = if app.search_query.is_empty() {
+    let search_text = if app.global_search_active || !app.global_search_query.is_empty() {
+        let result_count = app.global_search_results.len();
+        let total_matches: usize = app.global_search_results.values()
+            .map(|r| r.match_count).sum();
+        let mut spans = vec![
+            Span::styled("  /", Style::default().fg(Color::Yellow).bold()),
+            Span::styled(app.global_search_query.as_str(), Style::default().bold().fg(Color::White)),
+        ];
+        if app.global_search_active {
+            spans.push(Span::styled("█", Style::default().fg(Color::Yellow)));
+        }
+        if !app.global_search_query.is_empty() {
+            spans.push(Span::styled(
+                format!("  {} sessions, {} matches", result_count, total_matches),
+                Style::default().fg(LABEL),
+            ));
+        } else {
+            spans.push(Span::styled("  search all chats...", Style::default().fg(DIM)));
+        }
+        Line::from(spans)
+    } else if app.search_query.is_empty() {
         Line::from(vec![
             Span::styled("  Search: ", Style::default().fg(LABEL)),
             Span::styled("type to filter...", Style::default().fg(DIM)),
@@ -691,8 +830,9 @@ fn draw_list(f: &mut Frame, app: &mut App) {
 
     let current_sid = app.store.current_session_id.as_deref();
 
+    let turns_header = if !app.global_search_results.is_empty() { "Hits" } else { "Turns" };
     let header_cells = [
-        "", "Title", "Model", "Effort", "Tokens", "Turns", "MCPs",
+        "", "Title", "Model", "Effort", "Tokens", turns_header, "MCPs",
         "When", "Duration",
     ]
     .iter()
@@ -865,7 +1005,12 @@ fn draw_list(f: &mut Frame, app: &mut App) {
                 )),
                 Cell::from(effort).style(Style::default().fg(Color::Yellow)),
                 Cell::from(fmt_tokens(s.total_input + s.total_output)).style(Style::default().fg(Color::Green)),
-                Cell::from(s.turns.to_string()),
+                if let Some(result) = app.global_search_results.get(&idx) {
+                    Cell::from(format!("{} hits", result.match_count))
+                        .style(Style::default().fg(Color::Yellow))
+                } else {
+                    Cell::from(s.turns.to_string())
+                },
                 Cell::from(mcp_str).style(Style::default().fg(Color::Blue)),
                 Cell::from(when).style(Style::default().fg(LABEL)),
                 Cell::from(dur).style(Style::default().fg(LABEL)),
@@ -915,7 +1060,78 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             }
             tab_spans.push(Span::styled("  ", Style::default()));
 
-            if app.list_info_tab == 4 {
+            if !app.global_search_query.is_empty() {
+                // Global search: rich multi-line context panel
+                let query_lower = app.global_search_query.to_lowercase();
+                let mut lines: Vec<Line> = Vec::new();
+
+                if let Some(result) = app.global_search_results.get(&idx) {
+                    // Header line with match count
+                    tab_spans.push(Span::styled(
+                        format!("{} matches", result.match_count),
+                        Style::default().fg(Color::Yellow).bold(),
+                    ));
+                    lines.push(Line::from(tab_spans));
+
+                    // Snippet lines with role badges and highlighted query
+                    let panel_w = chunks[3].width.saturating_sub(4) as usize;
+                    for m in &result.matches {
+                        let role_badge = if m.role == "user" {
+                            Span::styled("  me  ", Style::default().fg(Color::Rgb(100, 160, 230)))
+                        } else {
+                            Span::styled("  ai  ", Style::default().fg(Color::Rgb(100, 200, 130)))
+                        };
+
+                        // Truncate snippet to panel width (accounting for badge)
+                        let max_text = panel_w.saturating_sub(8);
+                        let display_text: String = m.snippet.chars().take(max_text).collect();
+
+                        // Highlight query matches within the snippet (char-safe)
+                        let mut spans = vec![role_badge, Span::raw(" ")];
+                        let chars_vec: Vec<char> = display_text.chars().collect();
+                        let lower_chars: Vec<char> = display_text.to_lowercase().chars().collect();
+                        let query_chars: Vec<char> = query_lower.chars().collect();
+                        let mut i = 0;
+                        while i < chars_vec.len() {
+                            if i + query_chars.len() <= lower_chars.len()
+                                && lower_chars[i..i + query_chars.len()] == query_chars[..]
+                            {
+                                // Emit any preceding normal text
+                                let matched: String = chars_vec[i..i + query_chars.len()].iter().collect();
+                                spans.push(Span::styled(
+                                    matched,
+                                    Style::default().fg(Color::Rgb(255, 200, 60)).bold(),
+                                ));
+                                i += query_chars.len();
+                            } else {
+                                // Collect non-matching chars up to next potential match
+                                let start = i;
+                                i += 1;
+                                while i < chars_vec.len() {
+                                    if i + query_chars.len() <= lower_chars.len()
+                                        && lower_chars[i..i + query_chars.len()] == query_chars[..]
+                                    {
+                                        break;
+                                    }
+                                    i += 1;
+                                }
+                                let normal: String = chars_vec[start..i].iter().collect();
+                                spans.push(Span::styled(normal, Style::default().fg(PREVIEW)));
+                            }
+                        }
+                        lines.push(Line::from(spans));
+                    }
+                } else {
+                    tab_spans.push(Span::styled("No matches", Style::default().fg(DIM)));
+                    lines.push(Line::from(tab_spans));
+                }
+
+                let panel = Paragraph::new(lines)
+                    .block(Block::default()
+                        .borders(Borders::TOP)
+                        .border_style(Style::default().fg(LABEL)));
+                f.render_widget(panel, chunks[3]);
+            } else if app.list_info_tab == 4 {
                 // MCPs tab — live connection status from `claude mcp list`
                 render_mcp_panel(f, app, tab_spans, chunks[3]);
             } else {
@@ -1043,6 +1259,28 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             Span::styled("quit", Style::default().fg(LABEL)),
             Span::styled(select_hint, Style::default().fg(Color::Rgb(220, 160, 60)).bold()),
         ]))
+    } else if app.global_search_active {
+        // Typing into global chat search
+        Paragraph::new(Line::from(vec![
+            Span::styled(" type ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("search chats  ", Style::default().fg(LABEL)),
+            Span::styled("↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("navigate  ", Style::default().fg(LABEL)),
+            Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("confirm  ", Style::default().fg(LABEL)),
+            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("cancel", Style::default().fg(LABEL)),
+        ]))
+    } else if !app.global_search_query.is_empty() {
+        // Global search results visible, browsing
+        Paragraph::new(Line::from(vec![
+            Span::styled(" ↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("navigate  ", Style::default().fg(LABEL)),
+            Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("inspect  ", Style::default().fg(LABEL)),
+            Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("clear search", Style::default().fg(LABEL)),
+        ]))
     } else {
         Paragraph::new(Line::from(vec![
             Span::styled(" ↑↓ ", Style::default().fg(FOOTER_KEY).bold()),
@@ -1051,8 +1289,10 @@ fn draw_list(f: &mut Frame, app: &mut App) {
             Span::styled("info tab  ", Style::default().fg(LABEL)),
             Span::styled("Enter ", Style::default().fg(FOOTER_KEY).bold()),
             Span::styled("inspect  ", Style::default().fg(LABEL)),
+            Span::styled("/ ", Style::default().fg(FOOTER_KEY).bold()),
+            Span::styled("chat search  ", Style::default().fg(LABEL)),
             Span::styled("type ", Style::default().fg(FOOTER_KEY).bold()),
-            Span::styled("search  ", Style::default().fg(LABEL)),
+            Span::styled("filter  ", Style::default().fg(LABEL)),
             Span::styled("K ", Style::default().fg(FOOTER_KEY).bold()),
             Span::styled("focus  ", Style::default().fg(LABEL)),
             Span::styled("Esc ", Style::default().fg(FOOTER_KEY).bold()),

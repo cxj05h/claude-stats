@@ -136,8 +136,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let mods = if key.modifiers.is_empty() { String::new() } else { format!("{:?}+", key.modifiers) };
                     cs_log!("key: {}{:?} mode={} tab={} archive={} sel={}", mods, key.code, mode_str, app.list_info_tab, app.viewing_archive, app.selected_ids.len());
                     match app.mode {
+                        // Global chat search input mode (typing into /search)
+                        AppMode::List if app.global_search_active => match key.code {
+                            KeyCode::Char(c) => {
+                                app.global_search_query.push(c);
+                                app.run_global_search();
+                            }
+                            KeyCode::Backspace => {
+                                app.global_search_query.pop();
+                                app.run_global_search();
+                            }
+                            KeyCode::Enter => {
+                                app.global_search_active = false;
+                                // Keep results visible for browsing
+                            }
+                            KeyCode::Esc => {
+                                app.global_search_active = false;
+                                app.global_search_query.clear();
+                                app.global_search_results.clear();
+                                app.update_filtered();
+                            }
+                            KeyCode::Up => app.move_cursor(-1),
+                            KeyCode::Down => app.move_cursor(1),
+                            _ => {}
+                        },
                         AppMode::List => match key.code {
-                            KeyCode::Char('q') if app.search_query.is_empty() && !app.viewing_archive => break,
+                            KeyCode::Char('q') if app.search_query.is_empty() && app.global_search_query.is_empty() && !app.viewing_archive => break,
                             KeyCode::Char('q') if app.search_query.is_empty() && app.viewing_archive => {
                                 app.viewing_archive = false;
                                 app.update_filtered();
@@ -145,6 +169,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             KeyCode::Esc => {
                                 if !app.selected_ids.is_empty() {
                                     app.selected_ids.clear();
+                                } else if !app.global_search_query.is_empty() {
+                                    app.global_search_query.clear();
+                                    app.global_search_results.clear();
+                                    app.update_filtered();
                                 } else if !app.search_query.is_empty() {
                                     app.search_query.clear();
                                     app.update_filtered();
@@ -239,6 +267,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     Some(ui::DisplayRow::Session(_)) => {
                                         let title = app.selected_session().map(|s| s.title.clone()).unwrap_or_default();
                                         cs_log!("mode: List → Detail ({})", title);
+                                        // Pre-populate chat search so matches highlight immediately
+                                        if !app.global_search_query.is_empty() {
+                                            app.chat_search_query = app.global_search_query.clone();
+                                        }
                                         app.mode = AppMode::Detail;
                                     }
                                     None => {}
@@ -309,11 +341,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 ui::save_archive(&app.archived_ids);
                                 app.update_filtered();
                             }
-                            KeyCode::Char(c) => {
+                            KeyCode::Char('/') if app.search_query.is_empty() => {
+                                app.global_search_active = true;
+                                app.global_search_query.clear();
+                                app.global_search_results.clear();
+                            }
+                            KeyCode::Char(c) if app.global_search_query.is_empty() => {
                                 app.search_query.push(c);
                                 app.update_filtered();
                             }
-                            KeyCode::Backspace => {
+                            KeyCode::Backspace if app.global_search_query.is_empty() => {
                                 app.search_query.pop();
                                 app.update_filtered();
                             }
