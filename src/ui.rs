@@ -385,16 +385,26 @@ impl App {
         };
 
         if self.search_query.is_empty() {
-            // Archive view shows all loaded sessions (no 40-cap — archived sessions beyond
-            // the active window are loaded separately and sorted to the end of the vec).
-            let max = if self.viewing_archive {
-                self.store.sessions.len()
+            if self.viewing_archive {
+                // Archive view: show all loaded sessions, no cap
+                self.filtered_indices = (0..self.store.sessions.len())
+                    .filter(archive_filter)
+                    .collect();
             } else {
-                self.store.sessions.len().min(40)
-            };
-            self.filtered_indices = (0..max)
-                .filter(archive_filter)
-                .collect();
+                // Active view: cap at 40 real (non-agent) sessions; agents are included freely
+                let mut indices = Vec::new();
+                let mut real_count = 0usize;
+                for i in 0..self.store.sessions.len() {
+                    if !archive_filter(&i) { continue; }
+                    let is_agent = self.store.sessions[i].parent_session_id.is_some();
+                    if !is_agent {
+                        if real_count >= 40 { continue; }
+                        real_count += 1;
+                    }
+                    indices.push(i);
+                }
+                self.filtered_indices = indices;
+            }
         } else {
             let query = &self.search_query;
             let mut scored: Vec<(i64, usize)> = self

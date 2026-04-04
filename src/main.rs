@@ -388,6 +388,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     app.chat_search_current = 0;
                                 } else if app.chat_fullscreen {
                                     app.chat_fullscreen = false;
+                                    // Drain stale events: mouse sequences broken by Esc timing leak
+                                    // as Key::Char events ([, <, ;, M etc.) into the search bar
+                                    while event::poll(std::time::Duration::ZERO).unwrap_or(false) {
+                                        let _ = event::read();
+                                    }
                                 } else {
                                     // Dismiss indicator on the session we're leaving
                                     if let Some(s) = app.selected_session() {
@@ -396,6 +401,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     cs_log!("mode: Detail → List");
                                     app.mode = AppMode::List;
                                     app.detail_scroll = 0;
+                                    // Drain stale events: mouse sequences broken by Esc timing leak
+                                    // as Key::Char events ([, <, ;, M etc.) into the search bar
+                                    while event::poll(std::time::Duration::ZERO).unwrap_or(false) {
+                                        let _ = event::read();
+                                    }
                                 }
                             }
                             KeyCode::Char('/') => {
@@ -572,7 +582,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             app.cursor = clicked_row;
 
                                             // Left hitbox (cols 0-4, marker/arrow area): toggle agents
-                                            if mouse.column <= 4 {
+                                            // If the session has no agents, fall through to double-click inspect
+                                            let has_agents = match app.display_rows.get(clicked_row) {
+                                                Some(ui::DisplayRow::Session(idx)) => app.agent_counts.contains_key(&app.store.sessions[*idx].id),
+                                                Some(ui::DisplayRow::AgentSummary { .. }) => true,
+                                                None => false,
+                                            };
+                                            if mouse.column <= 4 && has_agents {
                                                 match app.display_rows.get(clicked_row) {
                                                     Some(ui::DisplayRow::AgentSummary { parent_id, .. }) => {
                                                         let pid = parent_id.clone();
@@ -583,17 +599,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                     }
                                                     Some(ui::DisplayRow::Session(idx)) => {
                                                         let sid = app.store.sessions[*idx].id.clone();
-                                                        if app.agent_counts.contains_key(&sid) {
-                                                            if !app.expanded_parents.insert(sid.clone()) {
-                                                                app.expanded_parents.remove(&sid);
-                                                            }
-                                                            app.rebuild_display_rows();
+                                                        if !app.expanded_parents.insert(sid.clone()) {
+                                                            app.expanded_parents.remove(&sid);
                                                         }
+                                                        app.rebuild_display_rows();
                                                     }
                                                     None => {}
                                                 }
                                             }
-                                            // Right hitbox (cols 5+): double-click to inspect
+                                            // Double-click anywhere on row opens session (when not toggling agents)
                                             else if is_double {
                                                 if let Some(ui::DisplayRow::Session(_)) = app.display_rows.get(clicked_row) {
                                                     let title = app.selected_session().map(|s| s.title.clone()).unwrap_or_default();

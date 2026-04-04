@@ -688,6 +688,7 @@ impl SessionStore {
         let projects_dir = home.join(".claude").join("projects");
         let mut sessions: Vec<Session> = Vec::new();
         let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut active_session_count: usize = 0; // counts only non-agent sessions toward the cap
 
         // Load archived IDs so we can keep recent archived sessions beyond the 40-cap
         let archived_ids = Self::read_archived_ids(&home);
@@ -729,8 +730,10 @@ impl SessionStore {
             }
 
             // Skip active sessions once we've hit the 40-session cap;
-            // still pick up recent archived sessions beyond the cap.
-            if !is_archived && sessions.len() >= 40 {
+            // agent sessions don't count toward the cap — only real sessions do.
+            // Still pick up recent archived sessions beyond the cap.
+            let is_agent = id.starts_with("agent-");
+            if !is_archived && !is_agent && active_session_count >= 40 {
                 continue;
             }
             if is_archived && !within_7_days {
@@ -751,6 +754,9 @@ impl SessionStore {
             };
 
             if let Some(session) = load_session_from_file(path, parent_id) {
+                if !is_agent && !is_archived {
+                    active_session_count += 1;
+                }
                 sessions.push(session);
             }
         }
