@@ -256,6 +256,8 @@ pub struct App {
     pub mcp_loading: bool,
     pub mcp_result: Arc<Mutex<Option<Vec<McpStatus>>>>,
     pub mcp_cursor: usize,                                              // selected MCP row (when on MCPs tab)
+    pub process_scan_rx: Option<std::sync::mpsc::Receiver<std::collections::HashMap<String, ProcessInfo>>>,
+    pub session_reload_rx: Option<std::sync::mpsc::Receiver<SessionStore>>,
 }
 
 impl App {
@@ -316,6 +318,8 @@ impl App {
             mcp_loading: false,
             mcp_result: Arc::new(Mutex::new(None)),
             mcp_cursor: 0,
+            process_scan_rx: None,
+            session_reload_rx: None,
         }
     }
 
@@ -452,10 +456,13 @@ impl App {
             }
         };
 
-        for (idx, session) in self.store.sessions.iter().enumerate() {
-            if !archive_filter(session) {
+        for idx in 0..self.store.sessions.len() {
+            if !archive_filter(&self.store.sessions[idx]) {
                 continue;
             }
+            // Lazy-load messages for search
+            self.store.ensure_messages_loaded(idx);
+            let session = &self.store.sessions[idx];
             let mut count = 0usize;
             let mut snippets: Vec<GlobalSearchMatch> = Vec::new();
 
@@ -561,6 +568,21 @@ impl App {
         }
     }
 
+    /// Returns the store index of the currently selected session, if any.
+    pub fn selected_session_idx(&self) -> Option<usize> {
+        match self.display_rows.get(self.cursor) {
+            Some(DisplayRow::Session(idx)) => Some(*idx),
+            _ => None,
+        }
+    }
+
+    /// Ensure messages are loaded for the selected session (lazy loading).
+    pub fn ensure_selected_messages_loaded(&mut self) {
+        if let Some(idx) = self.selected_session_idx() {
+            self.store.ensure_messages_loaded(idx);
+        }
+    }
+
     /// Returns the waiting indicator string for a session, or None if dismissed/expired/agent.
     pub fn effective_indicator(&self, s: &Session) -> Option<&'static str> {
         if s.parent_session_id.is_some() {
@@ -606,13 +628,13 @@ impl App {
         self.cleanup_seen_sessions();
     }
 
-    pub fn reload_sessions(&mut self) {
+    pub fn apply_reloaded_sessions(&mut self, store: SessionStore) {
         // Remember currently selected session ID to restore position
         let selected_id = self.selected_session().map(|s| s.id.clone());
         let saved_cursor = self.cursor;
         let saved_offset = self.list_offset;
 
-        self.store = SessionStore::load();
+        self.store = store;
         self.cleanup_seen_sessions();
 
         // Re-apply the active filter (global search or normal)
@@ -635,7 +657,6 @@ impl App {
                 }
             }
             if !found {
-                // Session not in new list — keep cursor at same position, clamped
                 self.cursor = saved_cursor.min(self.display_rows.len().saturating_sub(1));
             }
         } else {

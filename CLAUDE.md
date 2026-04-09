@@ -28,7 +28,7 @@ Agent sessions (spawned subagents) are linked to their parent session via the fi
 - `src/main.rs` — entry point, terminal setup, event loop, keybindings
 - `src/session.rs` — JSONL parsing, Session/SessionStore structs, stats cache loading
 - `src/ui.rs` — TUI rendering (App, Mascot, draw functions, layout, chat view)
-- `.claude/skills/ready-ship/` — commit, build, and push workflow
+- `.claude/skills/cs-ready-ship/` — commit, build, and push workflow
 - `.claude/skills/cs-feature/` — feature branch lifecycle management
 - `~/.local/bin/claude-stats` — installed binary
 - `~/.claude/stats-cache.json` — local usage statistics (written by Claude Code)

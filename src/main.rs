@@ -102,16 +102,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.tick += 1;
         app.mascot.update();
 
-        if app.tick.is_multiple_of(50) {
-            // Full reload every ~5s: re-scan files, pick up new/removed sessions
-            app.reload_sessions();
-            let session_quads: Vec<(String, String, i64, String)> = app.store.sessions.iter()
-                .map(|s| (s.id.clone(), s.file_path.clone(), s.end_ts.map(|t| t.timestamp()).unwrap_or(0), s.title.clone()))
-                .collect();
-            app.process_map = terminal::scan_claude_processes(&session_quads);
-        } else if app.tick.is_multiple_of(10) {
-            // Fast refresh every ~1s: only read new bytes for waiting state
-            app.fast_refresh();
+        // Collect background results (non-blocking)
+        if let Some(ref rx) = app.session_reload_rx {
+            if let Ok(store) = rx.try_recv() {
+                app.apply_reloaded_sessions(store);
+                app.session_reload_rx = None;
+            }
+        }
+        if let Some(ref rx) = app.process_scan_rx {
+            if let Ok(map) = rx.try_recv() {
+                app.process_map = map;
+                app.process_scan_rx = None;
+            }
         }
 
         ui::poll_mcp_result(&mut app);
@@ -131,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             match &evt {
-                Event::Key(key) => {
+                Event::Key(key) if key.kind == crossterm::event::KeyEventKind::Press => {
                     let mode_str = match app.mode { AppMode::List => "List", AppMode::Detail => "Detail" };
                     let mods = if key.modifiers.is_empty() { String::new() } else { format!("{:?}+", key.modifiers) };
                     cs_log!("key: {}{:?} mode={} tab={} archive={} sel={}", mods, key.code, mode_str, app.list_info_tab, app.viewing_archive, app.selected_ids.len());
@@ -267,6 +269,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     Some(ui::DisplayRow::Session(_)) => {
                                         let title = app.selected_session().map(|s| s.title.clone()).unwrap_or_default();
                                         cs_log!("mode: List → Detail ({})", title);
+                                        // Lazy-load messages for the selected session
+                                        app.ensure_selected_messages_loaded();
                                         // Pre-populate chat search so matches highlight immediately
                                         if !app.global_search_query.is_empty() {
                                             app.chat_search_query = app.global_search_query.clone();
@@ -612,6 +616,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 if let Some(ui::DisplayRow::Session(_)) = app.display_rows.get(clicked_row) {
                                                     let title = app.selected_session().map(|s| s.title.clone()).unwrap_or_default();
                                                     cs_log!("mode: List → Detail (double-click: {})", title);
+                                                    app.ensure_selected_messages_loaded();
                                                     app.mode = AppMode::Detail;
                                                 }
                                             }
@@ -680,6 +685,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 _ => {}
             }
+        }
+
+        // Background I/O: runs AFTER events are processed so keypresses are never blocked
+        if app.tick.is_multiple_of(50) {
+            // Full reload every ~5s in background thread (filesystem scan of 2000+ files)
+            if app.session_reload_rx.is_none() {
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let _ = tx.send(SessionStore::load());
+                });
+                app.session_reload_rx = Some(rx);
+            }
+            // Process scan in background thread (osascript + lsof are slow)
+            if app.process_scan_rx.is_none() {
+                let session_quads: Vec<(String, String, i64, String)> = app.store.sessions.iter()
+                    .map(|s| (s.id.clone(), s.file_path.clone(), s.end_ts.map(|t| t.timestamp()).unwrap_or(0), s.title.clone()))
+                    .collect();
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let _ = tx.send(terminal::scan_claude_processes(&session_quads));
+                });
+                app.process_scan_rx = Some(rx);
+            }
+        } else if app.tick.is_multiple_of(10) {
+            // Fast refresh every ~1s: only read new bytes for waiting state
+            app.fast_refresh();
         }
     }
 

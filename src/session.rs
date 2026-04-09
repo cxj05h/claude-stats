@@ -49,6 +49,7 @@ pub struct Session {
     pub compressions: Vec<usize>,            // turn indices where context was compressed
     pub waiting_state: WaitingState,
     pub last_file_size: u64,                 // bytes at last full parse
+    pub messages_loaded: bool,               // false = messages vec is empty, needs lazy load
 }
 
 pub fn context_window_for_model(model: &str) -> u64 {
@@ -348,8 +349,19 @@ fn extract_agent_name(id: &str) -> Option<String> {
 }
 
 fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Session> {
-    let content = fs::read_to_string(path).ok()?;
+    load_session_impl(path, parent_id, true)
+}
+
+fn load_session_metadata(path: &Path, parent_id: Option<String>) -> Option<Session> {
+    load_session_impl(path, parent_id, false)
+}
+
+fn load_session_impl(path: &Path, parent_id: Option<String>, include_messages: bool) -> Option<Session> {
+    use std::io::{BufRead, BufReader};
+
+    let file = fs::File::open(path).ok()?;
     let id = path.file_stem()?.to_str()?.to_string();
+    let file_size = file.metadata().ok().map(|m| m.len()).unwrap_or(0);
 
     let mut session = Session {
         id,
@@ -378,6 +390,7 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
         compressions: Vec::new(),
         waiting_state: WaitingState::None,
         last_file_size: 0,
+        messages_loaded: include_messages,
         context_breakdown: ContextBreakdown {
             system_plugins_skills: 0,
             user_messages: 0,
@@ -388,9 +401,14 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
     };
 
     let mut waiting_state = WaitingState::None;
+    let reader = BufReader::new(file);
 
-    for line in content.lines() {
-        let entry: Value = match serde_json::from_str(line) {
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let entry: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(_) => continue,
         };
@@ -460,21 +478,29 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                             match btype {
                                 "text" => {
                                     if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
-                                        let size = (text.len() as u64) / 4;
-                                        if text.contains("<system-reminder>") || text.contains("CLAUDE.md")
-                                            || text.contains("<command-name>")
-                                        {
-                                            session.context_breakdown.system_plugins_skills += size;
-                                        } else {
-                                            session.context_breakdown.user_messages += size;
-                                            let cleaned = sanitize_for_display(&strip_xml_tags(&text.chars().take(2000).collect::<String>()));
-                                            let trimmed = cleaned.trim();
-                                            if !trimmed.is_empty() && !trimmed.contains("Caveat: The messages below") {
-                                                waiting_state = WaitingState::None; // real user text
-                                                session.messages.push(MessageInfo {
-                                                    role: "user".into(),
-                                                    block: ContentBlock::Text(trimmed.to_string()),
-                                                });
+                                        let is_system = text.contains("<system-reminder>") || text.contains("CLAUDE.md")
+                                            || text.contains("<command-name>");
+                                        if include_messages {
+                                            let size = (text.len() as u64) / 4;
+                                            if is_system {
+                                                session.context_breakdown.system_plugins_skills += size;
+                                            } else {
+                                                session.context_breakdown.user_messages += size;
+                                                let cleaned = sanitize_for_display(&strip_xml_tags(&text.chars().take(2000).collect::<String>()));
+                                                let trimmed = cleaned.trim();
+                                                if !trimmed.is_empty() && !trimmed.contains("Caveat: The messages below") {
+                                                    waiting_state = WaitingState::None;
+                                                    session.messages.push(MessageInfo {
+                                                        role: "user".into(),
+                                                        block: ContentBlock::Text(trimmed.to_string()),
+                                                    });
+                                                }
+                                            }
+                                        } else if !is_system {
+                                            // Metadata-only: still track waiting state cheaply
+                                            let has_real_text = !text.is_empty() && !text.trim().is_empty();
+                                            if has_real_text {
+                                                waiting_state = WaitingState::None;
                                             }
                                         }
                                     }
@@ -483,38 +509,48 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                                     if waiting_state == WaitingState::WaitingForPermission {
                                         waiting_state = WaitingState::None;
                                     }
-                                    let size = block.to_string().len() as u64 / 4;
-                                    session.context_breakdown.tool_results += size;
-                                    // Extract tool result content
-                                    let raw_text = block.get("content")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .chars().take(500).collect::<String>();
-                                    let result_text = sanitize_for_display(&raw_text);
-                                    if !result_text.trim().is_empty() {
-                                        session.messages.push(MessageInfo {
-                                            role: "user".into(),
-                                            block: ContentBlock::ToolResult(result_text),
-                                        });
+                                    if include_messages {
+                                        let size = block.to_string().len() as u64 / 4;
+                                        session.context_breakdown.tool_results += size;
+                                        let raw_text = block.get("content")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .chars().take(500).collect::<String>();
+                                        let result_text = sanitize_for_display(&raw_text);
+                                        if !result_text.trim().is_empty() {
+                                            session.messages.push(MessageInfo {
+                                                role: "user".into(),
+                                                block: ContentBlock::ToolResult(result_text),
+                                            });
+                                        }
                                     }
                                 }
                                 "image" => {
-                                    session.context_breakdown.images += 1600;
+                                    if include_messages {
+                                        session.context_breakdown.images += 1600;
+                                    }
                                 }
                                 _ => {}
                             }
                         }
                     } else if let Some(s) = content.as_str() {
-                        let cleaned = sanitize_for_display(&strip_xml_tags(&s.chars().take(2000).collect::<String>()));
-                        let trimmed = cleaned.trim();
-                        if !trimmed.is_empty() {
-                            waiting_state = WaitingState::None; // real user text
-                            let size = (s.len() as u64) / 4;
-                            session.context_breakdown.user_messages += size;
-                            session.messages.push(MessageInfo {
-                                role: "user".into(),
-                                block: ContentBlock::Text(trimmed.to_string()),
-                            });
+                        if include_messages {
+                            let cleaned = sanitize_for_display(&strip_xml_tags(&s.chars().take(2000).collect::<String>()));
+                            let trimmed = cleaned.trim();
+                            if !trimmed.is_empty() {
+                                waiting_state = WaitingState::None;
+                                let size = (s.len() as u64) / 4;
+                                session.context_breakdown.user_messages += size;
+                                session.messages.push(MessageInfo {
+                                    role: "user".into(),
+                                    block: ContentBlock::Text(trimmed.to_string()),
+                                });
+                            }
+                        } else {
+                            let has_real_text = !s.is_empty() && !s.trim().is_empty();
+                            if has_real_text {
+                                waiting_state = WaitingState::None;
+                            }
                         }
                     }
                 }
@@ -558,7 +594,7 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                     session.total_cache_write += cw;
                     session.web_searches += ws as u32;
                     if cr > 0 {
-                        if session.last_context_read > 50000 && cr < session.last_context_read * 2 / 5 {
+                        if include_messages && session.last_context_read > 50000 && cr < session.last_context_read * 2 / 5 {
                             session.compressions.push(session.messages.len());
                         }
                         session.last_context_read = cr;
@@ -573,51 +609,67 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
                                 Some("tool_use") => {
                                     session.tool_calls += 1;
                                     session.turns += 1;
-                                    let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-                                    if name.starts_with("mcp__") {
-                                        let parts: Vec<&str> = name.split("__").collect();
-                                        if parts.len() > 1 {
-                                            *session.mcp_tools.entry(parts[1].to_string()).or_insert(0) += 1;
+                                    if include_messages {
+                                        let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                                        if name.starts_with("mcp__") {
+                                            let parts: Vec<&str> = name.split("__").collect();
+                                            if parts.len() > 1 {
+                                                *session.mcp_tools.entry(parts[1].to_string()).or_insert(0) += 1;
+                                            }
+                                        }
+                                        let input = block.get("input");
+                                        let summary = sanitize_for_display(&input.and_then(|v| {
+                                            v.get("command").and_then(|c| c.as_str()).map(|s| s.chars().take(80).collect::<String>())
+                                            .or_else(|| v.get("file_path").and_then(|c| c.as_str()).map(|s| s.to_string()))
+                                            .or_else(|| v.get("pattern").and_then(|c| c.as_str()).map(|s| s.to_string()))
+                                        }).unwrap_or_default());
+                                        let old_str = sanitize_for_display(input.and_then(|v| v.get("old_string").and_then(|s| s.as_str()))
+                                            .unwrap_or(""));
+                                        let new_str = sanitize_for_display(input.and_then(|v| v.get("new_string").and_then(|s| s.as_str()))
+                                            .unwrap_or(""));
+                                        session.messages.push(MessageInfo {
+                                            role: "assistant".into(),
+                                            block: ContentBlock::ToolUse {
+                                                name: name.to_string(),
+                                                summary,
+                                                old_str,
+                                                new_str,
+                                            },
+                                        });
+                                    } else {
+                                        // Metadata-only: still count MCP tools
+                                        if let Some(name) = block.get("name").and_then(|v| v.as_str()) {
+                                            if name.starts_with("mcp__") {
+                                                let parts: Vec<&str> = name.split("__").collect();
+                                                if parts.len() > 1 {
+                                                    *session.mcp_tools.entry(parts[1].to_string()).or_insert(0) += 1;
+                                                }
+                                            }
                                         }
                                     }
-                                    let input = block.get("input");
-                                    let summary = sanitize_for_display(&input.and_then(|v| {
-                                        v.get("command").and_then(|c| c.as_str()).map(|s| s.chars().take(80).collect::<String>())
-                                        .or_else(|| v.get("file_path").and_then(|c| c.as_str()).map(|s| s.to_string()))
-                                        .or_else(|| v.get("pattern").and_then(|c| c.as_str()).map(|s| s.to_string()))
-                                    }).unwrap_or_default());
-                                    let old_str = sanitize_for_display(input.and_then(|v| v.get("old_string").and_then(|s| s.as_str()))
-                                        .unwrap_or(""));
-                                    let new_str = sanitize_for_display(input.and_then(|v| v.get("new_string").and_then(|s| s.as_str()))
-                                        .unwrap_or(""));
-                                    session.messages.push(MessageInfo {
-                                        role: "assistant".into(),
-                                        block: ContentBlock::ToolUse {
-                                            name: name.to_string(),
-                                            summary,
-                                            old_str,
-                                            new_str,
-                                        },
-                                    });
                                 }
                                 Some("text") => {
-                                    if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
-                                        let cleaned = sanitize_for_display(&strip_xml_tags(&text.chars().take(2000).collect::<String>()));
-                                        let trimmed = cleaned.trim();
-                                        if !trimmed.is_empty() {
-                                            session.turns += 1;
-                                            session.messages.push(MessageInfo {
-                                                role: "assistant".into(),
-                                                block: ContentBlock::Text(trimmed.to_string()),
-                                            });
+                                    session.turns += 1;
+                                    if include_messages {
+                                        if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                                            let cleaned = sanitize_for_display(&strip_xml_tags(&text.chars().take(2000).collect::<String>()));
+                                            let trimmed = cleaned.trim();
+                                            if !trimmed.is_empty() {
+                                                session.messages.push(MessageInfo {
+                                                    role: "assistant".into(),
+                                                    block: ContentBlock::Text(trimmed.to_string()),
+                                                });
+                                            }
                                         }
                                     }
                                 }
                                 Some("thinking") => {
-                                    session.messages.push(MessageInfo {
-                                        role: "assistant".into(),
-                                        block: ContentBlock::Thinking,
-                                    });
+                                    if include_messages {
+                                        session.messages.push(MessageInfo {
+                                            role: "assistant".into(),
+                                            block: ContentBlock::Thinking,
+                                        });
+                                    }
                                 }
                                 _ => {}
                             }
@@ -649,7 +701,7 @@ fn load_session_from_file(path: &Path, parent_id: Option<String>) -> Option<Sess
         session.cwd = session.cwd.replace(&home_str, "~");
     }
 
-    session.last_file_size = content.len() as u64;
+    session.last_file_size = file_size;
 
     Some(session)
 }
@@ -753,7 +805,7 @@ impl SessionStore {
                 None
             };
 
-            if let Some(session) = load_session_from_file(path, parent_id) {
+            if let Some(session) = load_session_metadata(path, parent_id) {
                 if !is_agent && !is_archived {
                     active_session_count += 1;
                 }
@@ -778,6 +830,23 @@ impl SessionStore {
             current_session_id,
             current_effort,
             stats_cache,
+        }
+    }
+
+    /// Lazy-load messages for a session if not already loaded.
+    /// Call this before entering detail view or running search.
+    pub fn ensure_messages_loaded(&mut self, session_idx: usize) {
+        if session_idx >= self.sessions.len() { return; }
+        if self.sessions[session_idx].messages_loaded { return; }
+
+        let path = self.sessions[session_idx].file_path.clone();
+        let parent_id = self.sessions[session_idx].parent_session_id.clone();
+        if let Some(full) = load_session_from_file(Path::new(&path), parent_id) {
+            let session = &mut self.sessions[session_idx];
+            session.messages = full.messages;
+            session.compressions = full.compressions;
+            session.context_breakdown = full.context_breakdown;
+            session.messages_loaded = true;
         }
     }
 

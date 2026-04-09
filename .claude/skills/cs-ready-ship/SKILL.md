@@ -1,5 +1,5 @@
 ---
-name: ready-ship
+name: cs-ready-ship
 description: Ship claude-stats changes to GitHub. Use this skill whenever the user says "ready ship", "push", "ship it", "deploy", "send it", "release", or wants to commit and push their work to the remote repo. Also use when the user asks to update the README, cut a release, or make sure everything is tracked before pushing.
 ---
 
