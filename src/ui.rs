@@ -663,6 +663,13 @@ impl App {
             self.cursor = saved_cursor.min(self.display_rows.len().saturating_sub(1));
         }
         self.list_offset = saved_offset;
+
+        // Re-load messages for the selected session if currently viewing its detail.
+        // Background reload replaces the store with metadata-only sessions, wiping
+        // lazily-loaded messages — without this, Detail view shows "Chat [0 msgs]".
+        if matches!(self.mode, AppMode::Detail) {
+            self.ensure_selected_messages_loaded();
+        }
     }
 }
 
